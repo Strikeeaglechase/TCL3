@@ -1,0 +1,11 @@
+struct Test {
+	x: int;
+}
+
+fn main(): void {
+	let test: Test = {x: 5};
+	let test_ref: Test* = &test;
+	let value: int = test_ref->x;
+
+	out value;
+}

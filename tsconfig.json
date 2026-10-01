@@ -1,0 +1,27 @@
+{
+	"compilerOptions": {
+		"target": "ES6",
+		"moduleResolution": "node",
+		"module": "esnext",
+		"allowSyntheticDefaultImports": true,
+		"rootDir": "./src",
+		"outDir": "dist/",
+		"baseUrl": "./src",
+		"lib": [
+			"ES2022",
+			"DOM"
+		],
+		"types": [
+			"@types/node"
+		],
+		"experimentalDecorators": true,
+		"strict": false,
+		"ignoreDeprecations": "6.0",
+		"noImplicitAny": true,
+		"noImplicitOverride": true,
+		"noImplicitThis": true,
+	},
+	"include": [
+		"src/"
+	]
+}

@@ -1,0 +1,28 @@
+#define SCALAR 5
+#include ./point.tcl3
+
+fn add_points(p1: Point, p2: Point): Point {
+	return p1 + p2;
+}
+
+fn add_points(p1: Point, scalar: int): Point {
+	let new_pt: Point = {x: p1.x + scalar, y: p1.y + scalar};
+
+	return new_pt;
+}
+
+
+// Hello World!
+fn main(): void {
+	let test: int = SCALAR;
+
+	let p1: Point = {x: 5, y: 10};
+	let p2: Point = {x: 10, y: 20};
+
+	let p3: Point = add_points(p1, p2);
+	let p4: Point = add_points(p1, 5);
+
+	let result: int = p3.get_x();
+
+	let hello: char* = "Hello World!";
+}

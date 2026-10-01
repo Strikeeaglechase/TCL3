@@ -1,0 +1,8 @@
+fn raw_test(value: int): int {
+	return value;
+}
+
+fn main(): void {
+	let value: int = raw_test(5);
+	out value;
+}
