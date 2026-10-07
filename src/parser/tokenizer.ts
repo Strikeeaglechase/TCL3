@@ -1,8 +1,8 @@
 import { Stream } from "../stream.js";
 
-const keywords = ["if", "else", "elseif", "while", "for", "return", "fn", "let", "struct", "enum", "out"];
+const keywords = ["if", "else", "elif", "while", "for", "return", "fn", "let", "struct", "enum", "out"];
 const operands = ["+", "-", "*", "/", "%", "|", "&", "^", "||", "&&", "!", "==", "!=", "<", ">", "<=", ">=", "~", ">>", "<<"];
-const symbols = ["(", ")", "[", "]", "{", "}", ";", ",", ".", "=", ":", "->"];
+const symbols = ["(", ")", "[", "]", "{", "}", ";", ",", ".", "=", ":", "->", "+=", "-=", "*=", "/=", "%=", "|=", "&=", "^=", ">>=", "<<="];
 
 const operandPrecedence: Record<string, number> = {
 	"!": 1,

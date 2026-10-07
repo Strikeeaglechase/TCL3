@@ -1,9 +1,9 @@
 import fs from "fs";
 import path from "path";
 
-import { ASTType, Program } from "./parser/ast.js";
-import { Parser } from "./parser/parser.js";
-import { Token, Tokenizer } from "./parser/tokenizer.js";
+import { ASTType, Program } from "./ast.js";
+import { Parser } from "./parser.js";
+import { Token, Tokenizer } from "./tokenizer.js";
 
 class TargetFile {
 	private filePath: string;
@@ -13,6 +13,8 @@ class TargetFile {
 
 	private tokens: Token[];
 	private ast: Program;
+
+	private debugDir: string = null;
 
 	constructor(filePath: string, isPrimary: boolean = false) {
 		this.filePath = path.resolve(filePath);
@@ -29,12 +31,13 @@ class TargetFile {
 	public parse(publicSymbols: string[]) {
 		const name = path.basename(this.filePath, path.extname(this.filePath));
 		this.ast = new Parser(this.tokens, publicSymbols, name).parse();
+		if (this.debugDir) fs.writeFileSync(path.join(this.debugDir, path.basename(this.filePath) + ".ast.json"), JSON.stringify(this.ast, null, 2));
 		return this.ast;
 	}
 
-	public dumpDebugTo(debugDir: string) {
+	public enableDebugIn(debugDir: string) {
+		this.debugDir = debugDir;
 		fs.writeFileSync(path.join(debugDir, path.basename(this.filePath) + ".tokens.txt"), Tokenizer.generateDebug(this.tokens));
-		fs.writeFileSync(path.join(debugDir, path.basename(this.filePath) + ".ast.json"), JSON.stringify(this.ast, null, 2));
 	}
 
 	public isSameAs(otherPath: string) {
@@ -63,6 +66,10 @@ class Linker {
 
 	public compile() {
 		const publicSymbols = this.files.flatMap(file => file.exports);
+		if (this.debugDir) {
+			this.files.forEach(file => file.enableDebugIn(this.debugDir));
+		}
+
 		// Reversed list in order to ensure leaf files are parsed first
 		// So that their symbols are available for parent files during compilation
 		const astBlocks = this.files.reverse().map(file => file.parse(publicSymbols));
@@ -74,7 +81,6 @@ class Linker {
 
 		if (this.debugDir) {
 			fs.writeFileSync(path.join(this.debugDir, "combined.ast.json"), JSON.stringify(combinedAST, null, 2));
-			this.files.forEach(file => file.dumpDebugTo(this.debugDir));
 		}
 
 		return combinedAST;

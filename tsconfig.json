@@ -1,12 +1,11 @@
 {
 	"compilerOptions": {
 		"target": "ES6",
-		"moduleResolution": "node",
-		"module": "esnext",
+		"moduleResolution": "nodenext",
+		"module": "nodenext",
 		"allowSyntheticDefaultImports": true,
 		"rootDir": "./src",
 		"outDir": "dist/",
-		"baseUrl": "./src",
 		"lib": [
 			"ES2022",
 			"DOM"
@@ -16,7 +15,7 @@
 		],
 		"experimentalDecorators": true,
 		"strict": false,
-		"ignoreDeprecations": "6.0",
+		// "ignoreDeprecations": "6.0",
 		"noImplicitAny": true,
 		"noImplicitOverride": true,
 		"noImplicitThis": true,

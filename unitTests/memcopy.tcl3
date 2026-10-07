@@ -1,0 +1,24 @@
+// EXPECT: 20
+// EXPECT: 50
+
+fn memcopy(src: int*, dest: int*, size: int): void {
+	for (let i: int = 0; i < size; i += 1) {
+		dest[i] = src[i];
+	}
+}
+
+
+fn main(): void {
+	let size: int = 10;
+
+	let arr1: int* = malloc(size);
+	for (let i: int = 0; i < size; i += 1) {
+		arr1[i] = i * 10;
+	}
+
+	let arr2: int* = malloc(size);
+	memcopy(arr1, arr2, size);
+
+	out arr2[2];
+	out arr2[5];
+}

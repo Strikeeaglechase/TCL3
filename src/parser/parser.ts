@@ -1,12 +1,19 @@
 import { TypedObjectStream } from "../stream.js";
 import {
+	AddressOf,
 	Assignment,
 	AST,
 	ASTType,
 	ASTTypeRef,
 	BinaryExpression,
+	Block,
+	Dereference,
+	EnumDeclaration,
+	ForLoop,
 	FunctionCall,
 	FunctionDeclaration,
+	FunctionTypeRef,
+	IfStatement,
 	Initializer,
 	Literal,
 	Program,
@@ -15,7 +22,9 @@ import {
 	Semicolon,
 	StructDeclaration,
 	StructFieldInitializer,
+	UnaryExpression,
 	VariableDeclaration,
+	WhileLoop,
 	WrappedTypeRef
 } from "./ast.js";
 import { operandPrecedence, Token, TokenType } from "./tokenizer.js";
@@ -23,10 +32,12 @@ import { operandPrecedence, Token, TokenType } from "./tokenizer.js";
 const allowedOperatorOverloads = "+-*/[";
 const builtinTypes = ["int", "char", "bool", "void"];
 
+let id = 0;
 class Parser {
 	private tokenStream: TypedObjectStream<Token>;
 	private rewrittenNames: Map<string, string> = new Map();
 	private unitName: string;
+	private enumRawNames: Set<string> = new Set();
 
 	constructor(
 		tokens: Token[],
@@ -59,7 +70,7 @@ class Parser {
 			case TokenType.Keyword:
 				return this.paresKeyword(token.value);
 			case TokenType.Identifier:
-				return this.parseIdentifier(token.value);
+				return this.parseIdentifier(token.value, 0);
 			case TokenType.Operator:
 				return this.parseOperator(token.value);
 			case TokenType.Symbol:
@@ -84,9 +95,93 @@ class Parser {
 				return this.handleReturnStatement();
 			case "out":
 				return this.handleOutStatement();
+			case "for":
+				return this.handleForStatement();
+			case "while":
+				return this.handleWhileStatement();
+			case "if":
+				return this.handleIfStatement();
+			case "enum":
+				return this.handleEnumDeclaration();
 			default:
 				throw new Error(`Unexpected keyword: ${keyword}`);
 		}
+	}
+
+	private handleForStatement() {
+		this.tokenStream.consumeTV(TokenType.Symbol, "(");
+		const initializer = this.parseStatement();
+		this.tokenStream.consumeTV(TokenType.Symbol, ";");
+		const condition = this.parseStatement();
+		this.tokenStream.consumeTV(TokenType.Symbol, ";");
+		const increment = this.parseStatement();
+		this.tokenStream.consumeTV(TokenType.Symbol, ")");
+
+		const { body } = this.parseOptionallyBracketedBlock();
+
+		const forLoop: ForLoop = {
+			type: ASTType.ForLoop,
+			initializer: initializer,
+			condition: condition,
+			increment: increment,
+			body: body
+		};
+
+		return forLoop;
+	}
+
+	private handleWhileStatement() {
+		this.tokenStream.consumeTV(TokenType.Symbol, "(");
+		const condition = this.parseStatement();
+		this.tokenStream.consumeTV(TokenType.Symbol, ")");
+		const { body } = this.parseOptionallyBracketedBlock();
+
+		const whileLoop: WhileLoop = {
+			type: ASTType.WhileLoop,
+			condition: condition,
+			body: body
+		};
+
+		return whileLoop;
+	}
+
+	private handleIfStatement() {
+		this.tokenStream.consumeTV(TokenType.Symbol, "(");
+		const condition = this.parseStatement();
+		this.tokenStream.consumeTV(TokenType.Symbol, ")");
+
+		const { body: thenBody } = this.parseOptionallyBracketedBlock();
+		const elifs: { condition: AST; body: AST[] }[] = [];
+
+		while (!this.tokenStream.eof()) {
+			const peaked = this.tokenStream.peak();
+			if (peaked.type != TokenType.Keyword || peaked.value != "elif") break;
+
+			this.tokenStream.consumeTV(TokenType.Keyword, "elif");
+			this.tokenStream.consumeTV(TokenType.Symbol, "(");
+			const elifCondition = this.parseStatement();
+			this.tokenStream.consumeTV(TokenType.Symbol, ")");
+			const { body: elifBody } = this.parseOptionallyBracketedBlock();
+
+			elifs.push({ condition: elifCondition, body: elifBody });
+		}
+
+		let elseBody: AST[] | null = null;
+		const maybeElif = this.tokenStream.peak();
+		if (maybeElif.type == TokenType.Keyword && maybeElif.value == "else") {
+			this.tokenStream.consumeTV(TokenType.Keyword, "else");
+			elseBody = this.parseOptionallyBracketedBlock().body;
+		}
+
+		const ifStmt: IfStatement = {
+			type: ASTType.IfStatement,
+			condition: condition,
+			thenBody: thenBody,
+			elseBody: elseBody,
+			elseIfs: elifs
+		};
+
+		return ifStmt;
 	}
 
 	private handleReturnStatement() {
@@ -149,6 +244,40 @@ class Parser {
 		return structDecl;
 	}
 
+	private handleEnumDeclaration() {
+		let name = this.tokenStream.consumeType(TokenType.Identifier).value;
+		this.enumRawNames.add(name); // Add the enum name to the set of raw names
+		name = this.maybeRewriteName(name);
+		this.tokenStream.consumeTV(TokenType.Symbol, "{");
+
+		const variants: { name: string; value: number }[] = [];
+
+		let currentValue = 0;
+		while (!this.tokenStream.maybeConsumeTV(TokenType.Symbol, "}")) {
+			const variantName = this.tokenStream.consumeType(TokenType.Identifier).value;
+			let variantValue: number;
+
+			if (this.tokenStream.maybeConsumeTV(TokenType.Symbol, ":")) {
+				const valueToken = this.tokenStream.consumeType(TokenType.LiteralNumber);
+				variantValue = parseInt(valueToken.value);
+			} else {
+				variantValue = currentValue++;
+			}
+
+			variants.push({ name: variantName, value: variantValue });
+
+			this.tokenStream.maybeConsumeTV(TokenType.Symbol, ",");
+		}
+
+		const enumDecl: EnumDeclaration = {
+			type: ASTType.EnumDeclaration,
+			name: name,
+			variants: variants
+		};
+
+		return enumDecl;
+	}
+
 	private createPointerTypeTo(raw: string): WrappedTypeRef {
 		return { type: ASTType.WrappedTypeRef, inner: { type: ASTType.RawTypeRef, rawType: raw } };
 	}
@@ -169,9 +298,11 @@ class Parser {
 		}
 
 		const parameters = this.parseParenthesizedParameterList();
-		this.tokenStream.consumeTV(TokenType.Symbol, ":");
+		let returnType: ASTTypeRef = null;
+		if (this.tokenStream.maybeConsumeTV(TokenType.Symbol, ":")) {
+			returnType = this.parseTypeRef().type;
+		}
 
-		const returnType = this.parseTypeRef().type;
 		let { body, bracketed } = this.parseOptionallyBracketedBlock();
 
 		if (!bracketed) body = [{ type: ASTType.ReturnStatement, expression: body[0] }];
@@ -189,8 +320,15 @@ class Parser {
 
 	private handleVariableDeclaration() {
 		const name = this.tokenStream.consumeType(TokenType.Identifier).value;
-		this.tokenStream.consumeTV(TokenType.Symbol, ":");
-		const { type, arrayInit } = this.parseTypeRef();
+		let type: ASTTypeRef = null;
+		let arrayInit: AST = null;
+
+		if (this.tokenStream.maybeConsumeTV(TokenType.Symbol, ":")) {
+			const typeResult = this.parseTypeRef();
+			type = typeResult.type;
+			arrayInit = typeResult.arrayInit;
+		}
+
 		this.tokenStream.consumeTV(TokenType.Symbol, "=");
 		const initializer = this.parseStatement();
 
@@ -270,11 +408,13 @@ class Parser {
 		}
 	}
 
-	private maybeRewriteName(name: string): string {
+	private maybeRewriteName(name: string, createIfNeeded = true): string {
 		if (this.publicSymbols.includes(name)) return name; // Don't rewrite exported symbols
 		if (this.rewrittenNames.has(name)) return this.rewrittenNames.get(name);
 		if (name.startsWith("__")) return name;
 		if (builtinTypes.includes(name)) return name;
+
+		if (!createIfNeeded) return name;
 
 		const newName = `__${this.unitName}_${name}`;
 		this.rewrittenNames.set(name, newName);
@@ -285,6 +425,29 @@ class Parser {
 		const baseType = this.tokenStream.consumeType(TokenType.Identifier).value;
 		const rewrittenBaseType = this.maybeRewriteName(baseType);
 		let currentType: ASTTypeRef = { type: ASTType.RawTypeRef, rawType: rewrittenBaseType };
+
+		// Handle function type references
+		if (baseType == "Fn") {
+			this.tokenStream.consumeTV(TokenType.Operator, "<");
+			const typeArgs: ASTTypeRef[] = [];
+
+			while (!this.tokenStream.maybeConsumeTV(TokenType.Operator, ">")) {
+				typeArgs.push(this.parseTypeRef().type);
+				this.tokenStream.maybeConsumeTV(TokenType.Symbol, ",");
+			}
+
+			const returnType = typeArgs.pop();
+			if (!returnType) throw new Error(`Function type must have a return type.`);
+
+			const fnType: FunctionTypeRef = {
+				type: ASTType.FunctionTypeRef,
+				parameters: typeArgs,
+				returnType: returnType
+			};
+
+			currentType = fnType;
+		}
+
 		let arrayInit: AST | null = null;
 		while (!this.tokenStream.eof()) {
 			const peaked = this.tokenStream.peak();
@@ -330,13 +493,18 @@ class Parser {
 		return leftHand;
 	}
 
-	private parseReference(firstIdent: string) {
+	private parseReference(firstIdent: string, dereferenceCount: number) {
+		// Only rewrite identifier if it already is a rewritten name
+		// This means this reference is really a type of some sort
+		// Either an enum ref, or a special built in function that accepts a type as an argument (like sizeof)
+		firstIdent = this.maybeRewriteName(firstIdent, false);
+
 		const topRef: Reference = {
 			type: ASTType.Reference,
 			identifier: firstIdent,
 			offsetExpressions: null,
 			child: null,
-			dereferenceForChild: false
+			dereferenceCount: dereferenceCount
 		};
 
 		let currentRef = topRef;
@@ -356,7 +524,7 @@ class Parser {
 					identifier: fieldIdent,
 					offsetExpressions: null,
 					child: null,
-					dereferenceForChild: false
+					dereferenceCount: 0
 				};
 
 				currentRef.child = childRef;
@@ -390,11 +558,11 @@ class Parser {
 					identifier: fieldIdent,
 					offsetExpressions: null,
 					child: null,
-					dereferenceForChild: false
+					dereferenceCount: 0
 				};
 
 				currentRef.child = childRef;
-				currentRef.dereferenceForChild = true;
+				currentRef.dereferenceCount = 1;
 				currentRef = childRef;
 			} else {
 				break;
@@ -404,11 +572,9 @@ class Parser {
 		return topRef;
 	}
 
-	private parseIdentifier(ident: string) {
+	private parseIdentifier(ident: string, dereferenceCount: number): AST {
 		// Struct field initializer, doesn't use a reference as 'deep-assignments' are not supported
-		const peaked = this.tokenStream.peak();
-		if (peaked.type == TokenType.Symbol && peaked.value == ":") {
-			this.tokenStream.consumeTV(TokenType.Symbol, ":");
+		if (this.tokenStream.maybeConsumeTV(TokenType.Symbol, ":")) {
 			const expression = this.parseStatement();
 			const structFieldInit: StructFieldInitializer = {
 				type: ASTType.StructFieldInitializer,
@@ -419,14 +585,37 @@ class Parser {
 			return structFieldInit;
 		}
 
-		const ref = this.parseReference(ident);
+		const ref = this.parseReference(ident, dereferenceCount);
 		return this.handleReference(ref);
+	}
+
+	private handleSelfAssignMathOp(ref: Reference) {
+		const operatorToken = this.tokenStream.consumeType(TokenType.Symbol);
+		const operator = operatorToken.value.slice(0, -1); // Remove the '=' from the operator
+		const expression = this.parseStatement();
+
+		const binaryExpr: BinaryExpression = {
+			type: ASTType.BinaryExpression,
+			left: ref,
+			operator: operator,
+			right: expression
+		};
+
+		const assignment: Assignment = {
+			type: ASTType.VariableAssignment,
+			reference: ref,
+			expression: binaryExpr
+		};
+
+		return assignment;
 	}
 
 	private handleReference(ref: Reference) {
 		const peaked = this.tokenStream.peak();
 		if (peaked.type == TokenType.Symbol && peaked.value == "(") return this.handleFunctionCall(ref);
 		if (peaked.type == TokenType.Symbol && peaked.value == "=") return this.handleVariableAssignment(ref);
+		const selfAssignMathOps = ["+=", "-=", "*=", "/=", "%="];
+		if (peaked.type == TokenType.Symbol && selfAssignMathOps.includes(peaked.value)) return this.handleSelfAssignMathOp(ref);
 		if (peaked.type == TokenType.Operator) return this.parseBinaryExpression(ref);
 		return ref;
 	}
@@ -455,6 +644,36 @@ class Parser {
 			arguments: args
 		};
 
+		const peaked = this.tokenStream.peak();
+		// Handle chained reference
+		// Is handled using a temporary local variable to store the return
+		const isAccessBeyond = peaked.type == TokenType.Symbol && (peaked.value == "." || peaked.value == "[" || peaked.value == "->");
+		const isBinaryBeyond = peaked.type == TokenType.Operator && operandPrecedence[peaked.value] > 0;
+		if (isAccessBeyond || isBinaryBeyond) {
+			const tempVarName = `__func_ret_temp_${id++}`;
+			const tempVarDecl: VariableDeclaration = {
+				type: ASTType.VariableDeclaration,
+				name: tempVarName,
+				variableType: null, // Infer type
+				initializer: call,
+				arraySizeExpression: null
+			};
+
+			const remainingRef = this.parseIdentifier(tempVarName, 0);
+			const block: Block = {
+				type: ASTType.Block,
+				body: [tempVarDecl, remainingRef]
+			};
+
+			const peakedBeyond = this.tokenStream.peak();
+			const peakedBeyondIsBinary = peakedBeyond.type == TokenType.Operator && operandPrecedence[peakedBeyond.value] > 0;
+			if (peakedBeyondIsBinary || isBinaryBeyond) {
+				return this.parseBinaryExpression(block);
+			}
+
+			return block;
+		}
+
 		return call;
 	}
 
@@ -463,7 +682,33 @@ class Parser {
 			case "&":
 				const ref = this.parseStatement();
 				if (ref.type != ASTType.Reference) throw new Error(`Cannot take address of non-reference type`);
-				return { type: ASTType.AddressOf, reference: ref };
+				const addrOf: AddressOf = { type: ASTType.AddressOf, reference: ref };
+				return addrOf;
+			case "*":
+				let count = 1;
+				while (this.tokenStream.maybeConsumeTV(TokenType.Operator, "*")) count++;
+				const peaked = this.tokenStream.peak();
+				if (peaked.type == TokenType.Identifier) {
+					return this.parseIdentifier(this.tokenStream.consumeType(TokenType.Identifier).value, count);
+				} else {
+					const deref: Dereference = {
+						type: ASTType.Dereference,
+						operand: this.parseStatement(),
+						dereferenceCount: count
+					};
+
+					return deref;
+				}
+			case "!":
+			case "-":
+			case "~":
+				const operand = this.parseStatement();
+				const unaryExpr: UnaryExpression = {
+					type: ASTType.UnaryExpression,
+					operator: op,
+					operand: operand
+				};
+				return unaryExpr;
 			default:
 				throw new Error(`Unexpected operator: ${op}`);
 		}
@@ -489,6 +734,12 @@ class Parser {
 		return init;
 	}
 
+	private maybeStartBinaryExpression(ast: AST) {
+		const peaked = this.tokenStream.peak();
+		if (peaked.type == TokenType.Operator) return this.parseBinaryExpression(ast);
+		return ast;
+	}
+
 	private parseSymbol(symbol: string) {
 		switch (symbol) {
 			case ";":
@@ -496,6 +747,10 @@ class Parser {
 				return semi;
 			case "{":
 				return this.parseInitializer();
+			case "(":
+				const inner = this.parseStatement();
+				this.tokenStream.consumeTV(TokenType.Symbol, ")");
+				return this.maybeStartBinaryExpression(inner);
 			default:
 				throw new Error(`Unexpected symbol: ${symbol}`);
 		}
@@ -508,7 +763,7 @@ class Parser {
 			literalType: literal.type == TokenType.LiteralNumber ? "number" : "string"
 		};
 
-		return lit;
+		return this.maybeStartBinaryExpression(lit);
 	}
 }
 

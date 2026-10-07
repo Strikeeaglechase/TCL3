@@ -76,6 +76,16 @@ class TypedObjectStream<T extends { type: unknown; value: unknown }> extends Str
 
 		return value;
 	}
+
+	public maybeConsumeTV(expectedType: T["type"], expectedValue: T["value"]): boolean {
+		const peaked = this.peak();
+		if (peaked.type === expectedType && peaked.value === expectedValue) {
+			this.next();
+			return true;
+		}
+
+		return false;
+	}
 }
 
 export { Stream, TypedObjectStream };

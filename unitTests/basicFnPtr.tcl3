@@ -1,0 +1,8 @@
+// EXPECT: 5
+
+fn basic(x: int): int x
+
+fn main(): void {
+	let ptr: Fn<int, int> = basic;
+	out ptr(5);
+}

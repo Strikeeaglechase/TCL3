@@ -1,9 +1,10 @@
 import fs from "fs";
 
 import { Compiler } from "./compiler/compiler.js";
-import { loadIrFromFile } from "./compiler/ir.js";
 import { Emulator } from "./emulator.js";
-import { Linker } from "./linker.js";
+import { loadIrFromFile } from "./ir/irLoader.js";
+import { Linker } from "./parser/linker.js";
+import { UnitTester } from "./unitTests.js";
 
 function linkCompileAndExecute(sourceFilePath: string) {
 	const linker = new Linker(sourceFilePath);
@@ -12,18 +13,20 @@ function linkCompileAndExecute(sourceFilePath: string) {
 	const compiler = new Compiler(astProgram);
 	const irProgram = compiler.compile();
 	fs.writeFileSync("../debug/ir.txt", compiler.builder.getDebugText());
-	fs.writeFileSync("../debug/rawIr.txt", irProgram.join("\n"));
-	const emulator = new Emulator();
-	emulator.execute(irProgram);
+	const emulator = new Emulator(irProgram);
+	emulator.execute();
+
+	const unitTester = new UnitTester();
+	unitTester.runTests();
 }
 
 function executeIrFile(irFilePath: string) {
 	const debugIrContent = fs.readFileSync(irFilePath, "utf-8");
 	const irProgram = loadIrFromFile(debugIrContent);
 
-	const emulator = new Emulator();
-	emulator.execute(irProgram);
+	const emulator = new Emulator(irProgram);
+	emulator.execute();
 }
 
-// linkCompileAndExecute("../source/funcTest.tcl3");
-executeIrFile("../debug/ir.txt");
+linkCompileAndExecute("../source/funcTest.tcl3");
+// executeIrFile("../debug/ir.txt");

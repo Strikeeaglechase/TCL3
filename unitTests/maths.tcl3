@@ -1,0 +1,51 @@
+fn main(): void {
+	// EXPECT: 7
+	// EXPECT: 9
+	let a: int = 1 + 2 * 3;
+	let b: int = (1 + 2) * 3;
+	out a;
+	out b;
+
+	// EXPECT: 2
+	// EXPECT: 40
+	let c: int = 4 / 2;
+	let d: int = 8 * 5;
+	out c;
+	out d;
+
+	// EXPECT: 0
+	// EXPECT: 1
+	let e: int = 1 == 2;
+	let z: int = 1 != 2;
+	out e;
+	out z;
+
+	// EXPECT: 1
+	// EXPECT: -6
+	// EXPECT: 6
+	let f: int = !(1 == 2);
+	let g: int = ~5;
+	let h: int = -g;
+	out f;
+	out g;
+	out h;
+
+	// EXPECT: 5
+	// EXPECT: 2
+	// EXPECT: 4
+	let i: int = 1 | 4;
+	let j: int = 2 & 6;
+	let k: int = 3 ^ 7;
+	out i;
+	out j;
+	out k;
+
+
+	// EXPECT: 12
+	// EXPECT: 800
+	let l: int = 100 >> 3;
+	let m: int = 100 << 3;
+	out l;
+	out m;
+
+}

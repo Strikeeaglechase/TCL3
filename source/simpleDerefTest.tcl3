@@ -1,11 +1,20 @@
+struct SubStruct {
+	z: int;
+	k: int;
+}
+
 struct Test {
 	x: int;
+	y: int;
+
+	sub: SubStruct;
 }
 
 fn main(): void {
-	let test: Test = {x: 5};
-	let test_ref: Test* = &test;
-	let value: int = test_ref->x;
+	let test: Test = {x: 5, y: 10};
+	
+	let t2: Test = test;
 
-	out value;
+
+	out t2.x;
 }

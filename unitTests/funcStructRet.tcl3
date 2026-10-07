@@ -1,0 +1,15 @@
+// EXPECT: 20
+
+struct Point {x: int; y: int;}
+
+fn make_point(x: int, y: int): Point {
+	let pt: Point = {x: x, y: y};
+
+	return pt;
+}
+
+
+fn main(): void {
+	let point: Point = make_point(10, 20);
+	out point.y;
+}

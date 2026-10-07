@@ -1,0 +1,11 @@
+fn main(): void {
+	// EXPECT: 1
+	// EXPECT: -6
+	// EXPECT: 6
+	let f: int = !(1 == 2);
+	let g: int = ~5;
+	let h: int = -g;
+	out f;
+	out g;
+	out h;
+}

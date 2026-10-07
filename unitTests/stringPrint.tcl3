@@ -1,0 +1,17 @@
+// EXPECT: Hello, World!
+// EXPECT: This works!
+
+fn print_string(str: int*): void {
+	let idx: int = 0;
+	while (str[idx] != 0) {
+		out str[idx];
+
+		idx += 1;
+	}
+}
+
+fn main(): void {
+	let str: int* = "Hello, World!";
+	print_string(str);
+	print_string("This works!");
+}

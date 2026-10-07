@@ -1,0 +1,27 @@
+// EXPECT: 24
+// EXPECT: 42
+// EXPECT: 42
+
+struct Point {
+	x: int**;
+	y: int;
+}
+
+fn main(): void {
+	let x = 24;
+
+	let addrX = &x;
+	let addrAddrX = &addrX;
+
+	out **addrAddrX;
+
+	**addrAddrX = 42;
+	out x;
+
+	let pt: Point = {x: addrAddrX, y: 10};
+	let addrPt = &pt;
+	let addrAddrPt = &addrPt;
+
+	let t = **(addrPt->x);
+	out t;
+}

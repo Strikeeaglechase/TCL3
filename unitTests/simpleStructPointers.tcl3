@@ -1,0 +1,33 @@
+// EXPECT: 10
+// EXPECT: 22
+// EXPECT: 5
+
+struct SubStruct {
+	z: int;
+	k: int;
+}
+
+struct Test {
+	x: int;
+	y: int;
+
+	sub: SubStruct;
+}
+
+fn main(): void {
+	let test: Test = {x: 5, y: 10};
+	
+	let sub: SubStruct = {z: 15, k: 20};
+	test.sub = sub;
+
+	let test_ref: Test* = &test;
+	let value: int = test_ref->x;
+
+	out test.y;
+
+	test_ref->y = 22;
+	
+	out test.y;
+
+	out value;
+}

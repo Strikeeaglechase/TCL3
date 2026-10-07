@@ -1,0 +1,26 @@
+// EXPECT: 1
+// EXPECT: 2
+// EXPECT: 3
+// EXPECT: 4
+// EXPECT: 5
+// EXPECT: 35
+
+struct Test {
+	x: int;
+	y: int;
+	z: int;
+	z1: int;
+	z2: int;
+}
+
+fn main(): void {
+	let arr: int[5] = {1, 2, 3, 4, 5};
+	for (let i: int = 0; i<5; i+=1) {
+		out arr[i];
+	}
+
+	let a: Test = {x: 1, y: 2, z: 35};
+	let arr2: Test[5] = {};
+	arr2[1] = a;
+	out arr2[1].z;
+}

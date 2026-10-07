@@ -1,0 +1,7 @@
+// EXPECT: 5
+
+fn main(): void {
+	let a: int = 5;
+	let b: int = a;
+	out b;
+}

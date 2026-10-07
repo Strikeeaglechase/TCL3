@@ -1,0 +1,16 @@
+// EXPECT: 0
+// EXPECT: 1
+// EXPECT: 42
+
+enum Test {
+	a,
+	b,
+	c: 42
+}
+
+fn main(): void {
+	let e_test: Test = Test.a;
+	out e_test;
+	out Test.b;
+	out Test.c;
+}

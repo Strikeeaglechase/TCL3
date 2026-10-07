@@ -1,0 +1,17 @@
+// EXPECT: 0
+// EXPECT: 11
+// EXPECT: 22
+// EXPECT: 3
+// EXPECT: 4
+
+fn main(): void {
+	for (let i: int = 0; i<5; i+=1) {
+		if (i == 1) {
+			out 11;
+		} elif (i == 2){
+			out 22;
+		} else {
+			out i;
+		}
+	}
+}

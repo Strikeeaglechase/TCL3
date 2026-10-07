@@ -2,11 +2,14 @@ export enum ASTType {
 	Program = "Program",
 	FunctionDeclaration = "FunctionDeclaration",
 	WrappedTypeRef = "WrappedTypeRef",
+	FunctionTypeRef = "FunctionTypeRef",
 	RawTypeRef = "RawTypeRef",
 	Reference = "Reference",
 	ReturnStatement = "ReturnStatement",
 	BinaryExpression = "BinaryExpression",
+	UnaryExpression = "UnaryExpression",
 	StructDeclaration = "StructDeclaration",
+	EnumDeclaration = "EnumDeclaration",
 	// StructInitializer = "StructInitializer",
 	// ArrayInitializer = "ArrayInitializer",
 	Initializer = "Initializer",
@@ -17,7 +20,12 @@ export enum ASTType {
 	Semicolon = "Semicolon",
 	Literal = "Literal",
 	AddressOf = "AddressOf",
-	Out = "Out"
+	Dereference = "Dereference",
+	Out = "Out",
+	ForLoop = "ForLoop",
+	WhileLoop = "WhileLoop",
+	IfStatement = "IfStatement",
+	Block = "Block"
 }
 
 export interface ASTNode {
@@ -42,6 +50,12 @@ export interface WrappedTypeRef extends ASTNode {
 	inner: ASTTypeRef;
 }
 
+export interface FunctionTypeRef extends ASTNode {
+	type: ASTType.FunctionTypeRef;
+	parameters: ASTTypeRef[];
+	returnType: ASTTypeRef;
+}
+
 export interface RawTypeRef extends ASTNode {
 	type: ASTType.RawTypeRef;
 	rawType: string;
@@ -52,7 +66,7 @@ export interface Reference extends ASTNode {
 	identifier: string;
 	offsetExpressions: AST[] | null;
 	child: Reference | null;
-	dereferenceForChild: boolean;
+	dereferenceCount: number;
 }
 
 export interface ReturnStatement extends ASTNode {
@@ -74,15 +88,11 @@ export interface StructDeclaration extends ASTNode {
 	methods: FunctionDeclaration[];
 }
 
-// export interface StructInitializer extends ASTNode {
-// 	type: ASTType.StructInitializer;
-// 	fields: { name: string; expression: AST }[];
-// }
-
-// export interface ArrayInitializer extends ASTNode {
-// 	type: ASTType.ArrayInitializer;
-// 	values: AST[];
-// }
+export interface EnumDeclaration extends ASTNode {
+	type: ASTType.EnumDeclaration;
+	name: string;
+	variants: { name: string; value: number }[];
+}
 
 export interface Initializer extends ASTNode {
 	type: ASTType.Initializer;
@@ -130,22 +140,64 @@ export interface AddressOf extends ASTNode {
 	reference: Reference;
 }
 
+export interface Dereference extends ASTNode {
+	type: ASTType.Dereference;
+	operand: AST;
+	dereferenceCount: number;
+}
+
 export interface OutStatement extends ASTNode {
 	type: ASTType.Out;
 	expression: AST;
 }
 
-export type ASTTypeRef = WrappedTypeRef | RawTypeRef;
+export interface UnaryExpression extends ASTNode {
+	type: ASTType.UnaryExpression;
+	operator: string;
+	operand: AST;
+}
+
+export interface ForLoop extends ASTNode {
+	type: ASTType.ForLoop;
+	initializer: AST;
+	condition: AST;
+	increment: AST;
+	body: AST[];
+}
+
+export interface WhileLoop extends ASTNode {
+	type: ASTType.WhileLoop;
+	condition: AST;
+	body: AST[];
+}
+
+export interface IfStatement extends ASTNode {
+	type: ASTType.IfStatement;
+	condition: AST;
+	thenBody: AST[];
+	elseBody: AST[] | null;
+	elseIfs: { condition: AST; body: AST[] }[];
+}
+
+export interface Block extends ASTNode {
+	type: ASTType.Block;
+	body: AST[];
+}
+
+export type ASTTypeRef = WrappedTypeRef | FunctionTypeRef | RawTypeRef;
 
 export type AST =
 	| Program
 	| FunctionDeclaration
-	| WrappedTypeRef
 	| RawTypeRef
+	| WrappedTypeRef
+	| FunctionTypeRef
 	| Reference
 	| ReturnStatement
 	| BinaryExpression
+	| UnaryExpression
 	| StructDeclaration
+	| EnumDeclaration
 	// | StructInitializer
 	// | ArrayInitializer
 	| Initializer
@@ -156,4 +208,9 @@ export type AST =
 	| Semicolon
 	| Literal
 	| AddressOf
-	| OutStatement;
+	| OutStatement
+	| ForLoop
+	| WhileLoop
+	| IfStatement
+	| Block
+	| Dereference;
