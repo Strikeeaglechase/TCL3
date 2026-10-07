@@ -122,15 +122,19 @@ class _IRBuilder implements IStringProvider {
 		return this.program;
 	}
 
-	public getDebugText() {
+	public static getDebugText(program: IRProgram, includeLineNumbers: boolean) {
 		// let result = `CODE:\n`;
-		const commentPad = Math.max(...this.program.code.map(line => line.getBaseLength())) + 1;
-		const lines = this.program.code.map((line, idx) => /*idx.toString().padStart(3, "0") + ": " +*/ line.toString(commentPad));
+		const commentPad = Math.max(...program.code.map(line => line.getBaseLength())) + 1;
+		const lines = program.code.map((line, idx) => {
+			let res = line.toString(commentPad);
+			if (includeLineNumbers) res = idx.toString().padStart(3, "0") + ": " + res;
+			return res;
+		});
 		let result = `CODE:\n\n${lines.join("\n")}`;
 
 		result += `\n\nSTRINGS:\n`;
-		for (let i = 0; i < this.program.strings.length; i++) {
-			result += `${i}: ${this.program.strings[i]}\n`;
+		for (let i = 0; i < program.strings.length; i++) {
+			result += `${i}: ${program.strings[i]}\n`;
 		}
 
 		return result;

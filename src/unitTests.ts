@@ -4,6 +4,7 @@ import path from "path";
 
 import { Compiler } from "./compiler/compiler.js";
 import { Emulator } from "./emulator.js";
+import { IROptimizer } from "./ir/irOptimizer.js";
 import { Linker } from "./parser/linker.js";
 
 interface TestFile {
@@ -48,7 +49,9 @@ class UnitTester {
 		const testFiles = this.testFilePaths.map(filePath => this.loadTestFile(filePath));
 		let allPassed = true;
 		let passCount = 0;
+		let optPassCount = 0;
 		let ticks = 0;
+		let optTicks = 0;
 
 		const start = Date.now();
 		for (const testFile of testFiles) {
@@ -62,7 +65,9 @@ class UnitTester {
 				if (!result.passed) allPassed = false;
 
 				passCount += result.totalTests - result.failCount;
+				optPassCount += result.totalTests - result.optimizedFailCount;
 				ticks += result.ticks;
+				optTicks += result.optimizedTicks;
 			} catch (err) {
 				console.log(chalk.red(`Test ${testFile.name} failed with error: ${err.message}`));
 				allPassed = false;
@@ -72,36 +77,56 @@ class UnitTester {
 		const totalTests = testFiles.reduce((sum, file) => sum + file.expectedOutput.length, 0);
 
 		const end = Date.now();
-		let rStr = `${passCount}/${totalTests}`;
+		let rStr = `${optPassCount}/${totalTests}`;
 		if (allPassed) rStr = chalk.green(rStr);
 		else rStr = chalk.red(rStr);
 
-		console.log(rStr + chalk.blue(` tests passed in ${end - start}ms. ${ticks} ticks executed.`));
+		const reduction = ((ticks - optTicks) / ticks) * 100;
+		console.log(rStr + chalk.blue(` tests passed in ${end - start}ms. ${ticks} ticks unopt, ${optTicks} optimized (${reduction.toFixed(0)}% reduction).`));
 	}
 
 	private runTest(file: TestFile) {
+		// console.log(`Running test: ${file.name}`);
 		const linker = new Linker(file.filePath);
 		const astProg = linker.compile();
 		const compiler = new Compiler(astProg);
 		const output = compiler.compile();
+		const optimizer = new IROptimizer(output);
+		const optimizedOutput = optimizer.optimize();
 		const emulator = new Emulator(output, true);
+		const optimizedEmulator = new Emulator(optimizedOutput, true);
 		const result = emulator.execute();
+		const optimizedResult = optimizedEmulator.execute();
 
 		let failCount = 0;
+		let optimizedFailCount = 0;
 		file.expectedOutput.forEach((expected, index) => {
-			if (result.outputs[index] == expected) return;
+			if (result.outputs[index] != expected) {
+				console.log(chalk.red(`Test ${file.name} failed on case ${index}, expected ${expected}, got ${result.outputs[index]}`));
+				failCount++;
+			}
 
-			console.log(chalk.red(`Test ${file.name} failed on case ${index}, expected ${expected}, got ${result.outputs[index]}`));
-			failCount++;
+			if (optimizedResult.outputs[index] != expected) {
+				console.log(chalk.red(`Optimized test ${file.name} failed on case ${index}, expected ${expected}, got ${optimizedResult.outputs[index]}`));
+				optimizedFailCount++;
+			}
 		});
 
-		if (failCount == 0) console.log(chalk.blueBright(`Test ${file.name} passed`));
+		if (failCount == 0 && optimizedFailCount == 0) {
+			console.log(chalk.blueBright(`Test ${file.name} passed`));
+		} else if (failCount > 0 && optimizedFailCount == 0) {
+			console.log(chalk.red(`Somehow, ${file.name} fails unoptimized but passes optimized`));
+		} else if (failCount == 0 && optimizedFailCount > 0) {
+			console.log(chalk.yellow(`Test ${file.name} passes unoptimized but fails optimized`));
+		}
 
 		return {
-			passed: failCount == 0,
+			passed: failCount == 0 && optimizedFailCount == 0,
 			failCount,
+			optimizedFailCount,
 			totalTests: file.expectedOutput.length,
-			ticks: result.ticks
+			ticks: result.ticks,
+			optimizedTicks: optimizedResult.ticks
 		};
 	}
 }

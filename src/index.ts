@@ -2,7 +2,9 @@ import fs from "fs";
 
 import { Compiler } from "./compiler/compiler.js";
 import { Emulator } from "./emulator.js";
+import { IRBuilder } from "./ir/irBuilder.js";
 import { loadIrFromFile } from "./ir/irLoader.js";
+import { IROptimizer } from "./ir/irOptimizer.js";
 import { Linker } from "./parser/linker.js";
 import { UnitTester } from "./unitTests.js";
 
@@ -12,9 +14,16 @@ function linkCompileAndExecute(sourceFilePath: string) {
 	const astProgram = linker.compile();
 	const compiler = new Compiler(astProgram);
 	const irProgram = compiler.compile();
-	fs.writeFileSync("../debug/ir.txt", compiler.builder.getDebugText());
-	const emulator = new Emulator(irProgram);
-	emulator.execute();
+	fs.writeFileSync("../debug/ir.txt", IRBuilder.getDebugText(irProgram, true));
+	const optimizer = new IROptimizer(irProgram);
+	const optimizedIrProgram = optimizer.optimize();
+	fs.writeFileSync("../debug/optimizedIr.txt", IRBuilder.getDebugText(optimizedIrProgram, false));
+	const emulator = new Emulator(irProgram, true);
+	const unoptResult = emulator.execute();
+	const optimizedEmulator = new Emulator(optimizedIrProgram);
+	const opResult = optimizedEmulator.execute();
+
+	console.log(`Unoptimized ticks ${unoptResult.ticks}, Optimized ticks: ${opResult.ticks}`);
 
 	const unitTester = new UnitTester();
 	unitTester.runTests();

@@ -1,0 +1,23 @@
+// EXPECT: 1
+// EXPECT: 0
+// EXPECT: 65
+// EXPECT: 1
+// EXPECT: 1
+// EXPECT: 1
+// EXPECT: 0
+// EXPECT: 0
+// EXPECT: 1
+
+fn main(): void {
+	out true;
+	out false;
+	out 'A';
+
+	out 3 < 4;
+	out 3 <= 3;
+	out 4 > 3;
+	out 4 >= 5;
+
+	out true && false;
+	out false || 7;
+}

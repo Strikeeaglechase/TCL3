@@ -1,0 +1,25 @@
+// EXPECT: 13
+// EXPECT: 7
+// EXPECT: 6
+// EXPECT: 10
+
+struct Pair {
+	left: int;
+	right: int;
+}
+
+fn makePair(left: int, right: int): Pair {
+	let pair: Pair = {left: left, right: right};
+	return pair;
+}
+
+fn add(left: int, right: int): int left + right
+
+fn inferred(value: int) value + 1
+
+fn main(): void {
+	out makePair(8, 13).right;
+	out makePair(2, 3).left + 5;
+	out add(1, add(2, 3));
+	out inferred(9);
+}

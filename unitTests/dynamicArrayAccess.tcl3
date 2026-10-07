@@ -1,0 +1,17 @@
+// EXPECT: 40
+// EXPECT: 35
+// EXPECT: 45
+
+fn main(): void {
+	let size: int = 3;
+	let values: int[size + 1] = {10, 20, 30, 40};
+
+	out values[1 + 2];
+
+	let valuePointer = &values[2];
+	*valuePointer = 35;
+	out values[2];
+
+	values[size] += 5;
+	out values[size];
+}

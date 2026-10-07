@@ -1,27 +1,8 @@
-// EXPECT: 5
-// EXPECT: 23
-// EXPECT: 3
-// EXPECT: 16
-// EXPECT: 32
+// EXPECT: 24
+// EXPECT: 42
+// EXPECT: 42
 
-fn add(a: int, b: int) a+b
-fn sub(a: int, b: int) a-b
 
 fn main(): void {
-	let ops: Fn<int, int, int>* = malloc(2);
-	ops[0] = add;
-	ops[1] = sub;
-
-	let result1: int = ops[0](2, 3);
-	let result2: int = ops[0](20, 3);
-	let result3: int = ops[1](5, 2);
-
-	let result4 = ops[1](10, 4) + 10;
-	let result5 = ops[1](result4, 10) + ops[0](result4, 10);
-
-	out result1;
-	out result2;
-	out result3;
-	out result4;
-	out result5;
+	out 24 + 12;
 }

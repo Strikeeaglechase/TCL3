@@ -1,0 +1,28 @@
+// EXPECT: 25
+// EXPECT: 15
+// EXPECT: 45
+// EXPECT: 5
+// EXPECT: 6
+// EXPECT: 7
+
+fn main(): void {
+	let value: int = 20;
+	value += 5;
+	out value;
+	value -= 10;
+	out value;
+	value *= 3;
+	out value;
+	value /= 9;
+	out value;
+
+	let index: int = 0;
+	let total: int = 0;
+	while (index < 4) {
+		total += index;
+		index += 1;
+	}
+	out total;
+
+	if (true) out 7;
+}

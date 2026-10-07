@@ -10,6 +10,10 @@ enum Register {
 	funcRet = "funcRet"
 }
 
+function isRegister(value: string): value is Register {
+	return Object.values(Register).includes(value as Register);
+}
+
 const irOpCode = [
 	"MOV",
 	"ADD",
@@ -61,6 +65,10 @@ class IRArgument {
 			return `${this.type}(${this.value}+${this.offset})`;
 		}
 		return `${this.type}(${this.value})`;
+	}
+
+	public equals(other: IRArgument): boolean {
+		return this.type === other.type && this.value === other.value && this.offset === other.offset;
 	}
 }
 
@@ -132,4 +140,4 @@ class IRLabelLine extends IRLine {
 	}
 }
 
-export { Register, IRArgument, IROpCode, irOpCode, isOpCode, IRProgram, IRLine, IRCodeLine, IRCommentLine, IRLabelLine };
+export { Register, IRArgument, IROpCode, irOpCode, isOpCode, IRProgram, IRLine, IRCodeLine, IRCommentLine, IRLabelLine, isRegister };

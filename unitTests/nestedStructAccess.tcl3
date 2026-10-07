@@ -1,0 +1,32 @@
+// EXPECT: 22
+// EXPECT: 33
+// EXPECT: 22
+// EXPECT: 44
+
+struct Inner {
+	left: int;
+	right: int;
+}
+
+struct Outer {
+	prefix: int;
+	inner: Inner;
+	suffix: int;
+}
+
+fn main(): void {
+	let inner: Inner = {left: 11, right: 22};
+	let outer: Outer = {prefix: 1, suffix: 2};
+	outer.inner = inner;
+
+	out outer.inner.right;
+	outer.inner.left = 33;
+	out outer.inner.left;
+
+	let copy: Outer = outer;
+	out copy.inner.right;
+
+	let outerPointer: Outer* = &outer;
+	outerPointer->inner.right = 44;
+	out outerPointer->inner.right;
+}

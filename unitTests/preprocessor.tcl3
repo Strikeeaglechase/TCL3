@@ -1,0 +1,8 @@
+// EXPECT: 21
+
+#define BASE 7
+#include ./preprocessorSupport.tcl3
+
+fn main(): void {
+	out triple(BASE);
+}
