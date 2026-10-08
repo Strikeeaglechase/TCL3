@@ -1,5 +1,5 @@
-import { IRArgument, IRCodeLine, IRLine, IROpCode, IRProgram, Register } from "./ir.js";
-import { imm, reg } from "./irBuilder.js";
+import { IRArgument, IRCodeLine, IRLabelLine, IRLine, IROpCode, IRProgram, Register } from "./ir.js";
+import { imm, label, reg } from "./irBuilder.js";
 
 const MISS_CYCLES_BEFORE_EXIT = 3;
 
@@ -21,6 +21,7 @@ class IROptimizer {
 			this.updateMathMoveInstructions();
 			this.removeNoOpInstructions();
 			this.removePushPopPairs();
+			this.removePointlessJump();
 
 			if (this.code.length === lastLength) this.noSizeReductionCycles++;
 			else this.noSizeReductionCycles = 0;
@@ -32,6 +33,19 @@ class IROptimizer {
 			code: this.code,
 			strings: this.strings
 		};
+	}
+
+	private removePointlessJump() {
+		this.code = this.code.filter((line, idx) => {
+			if (!(line instanceof IRCodeLine)) return true;
+			if (line.opcode != "MOV" || !line.args[1].equals(reg(Register.pc))) return true;
+
+			const nextLine = this.code[idx + 1];
+			if (!(nextLine instanceof IRLabelLine)) return true;
+			if (!line.args[0].equals(label(nextLine.label))) return true;
+
+			return false;
+		});
 	}
 
 	private checkModifies(line: IRCodeLine, arg: IRArgument): boolean {

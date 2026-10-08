@@ -647,7 +647,6 @@ class Compiler {
 	}
 
 	public inferTypeFrom(initializer: AST): ASTTypeRef {
-		// console.log(initializer);
 		switch (initializer.type) {
 			case ASTType.Literal:
 				return { type: ASTType.RawTypeRef, rawType: "int" }; // All literals are integers for now
@@ -672,7 +671,7 @@ class Compiler {
 			case ASTType.Semicolon:
 				return { type: ASTType.RawTypeRef, rawType: "void" };
 			default:
-				console.log(`Cannot infer type from initializer of type: ${initializer.type}`);
+				console.log(chalk.yellow(`Cannot infer type from initializer of type: ${initializer.type}`));
 				return null; // Cannot infer type
 		}
 	}
