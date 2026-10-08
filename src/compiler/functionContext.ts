@@ -12,12 +12,17 @@ interface Local {
 	size: number;
 }
 
+let id = 0;
 class FunctionContext {
 	public name: string;
 	public type: FunctionTypeRef;
+	public get callTypeSignature(): string {
+		return this.type.parameters.map(param => typeToStr(param)).join(", ");
+	}
 	public argSize: number;
 
 	public outLabel: string = null;
+	public label: string = null;
 
 	private locals: Map<string, Local> = new Map();
 	private forwardDeclaredParameters: Map<string, Omit<Local, "stackOffset">> = new Map();
@@ -34,11 +39,13 @@ class FunctionContext {
 		// returnType: ASTTypeRef
 	) {
 		this.name = func.name;
-		this.outLabel = `${this.name}_out`;
+		const fnId = id++;
+		this.label = this.name == "main" ? "main" : `${this.name}_${fnId}`;
+		this.outLabel = `${this.name}_out_${fnId}`;
 		this.argSize = func.parameters.reduce((acc, param) => acc + this.compiler.resolveTypeSize(param.type), 0);
 		this.builder = this.compiler.builder;
 
-		this.builder.addLabel(this.name);
+		this.builder.addLabel(this.label);
 	}
 
 	private checkOrResolveReturnType() {
@@ -159,9 +166,14 @@ class FunctionContext {
 	public readVarToStack(name: string, offset = 0, size = -1): void {
 		if (this.compiler.functions.has(name)) {
 			if (offset !== 0 || size !== -1) throw new Error(`Cannot read function '${name}' with offset or size.`);
-			const fn = this.compiler.functions.get(name).name;
-			this.builder.push(label(fn));
-			return;
+			const fns = this.compiler.functions.get(name);
+			if (fns != null) {
+				if (fns.length > 1) throw new Error(`Unable to take function pointer of function '${name}' due to being an overloaded function`);
+
+				const fn = this.compiler.functions.get(name)[0];
+				this.builder.push(label(fn.label));
+				return;
+			}
 		}
 
 		if (!this.locals.has(name)) throw new Error(`Local variable '${name}' is not defined in function '${this.name}'.`);
@@ -330,7 +342,7 @@ class FunctionContext {
 
 	public getCallInfo(): FunctionCallInfo {
 		return {
-			getAddress: () => label(this.name),
+			getAddress: () => label(this.label),
 			addressExtraInstructionCount: 0,
 			returnType: this.type.returnType,
 			argumentSize: this.argSize

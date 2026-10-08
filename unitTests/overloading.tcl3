@@ -1,0 +1,28 @@
+// EXPECT: 33
+// EXPECT: 24
+// EXPECT: 42
+
+struct Point {
+	x: int;
+	y: int;
+}
+
+fn add(a: int, b: int) {
+	return a + b;
+}
+
+fn add(p1: Point, p2: Point): Point {
+	let pt: Point = { x: p1.x + p2.x, y: p1.y + p2.y };
+
+	return pt;
+}
+
+
+fn main(): void {
+	let p1: Point = { x: 10, y: 20 };
+	let p2: Point = { x: 14, y: 22 };
+
+	out add(22, 11);
+	out add(p1, p2).x;
+	out add(p1, p2).y;
+}

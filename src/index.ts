@@ -14,7 +14,7 @@ function linkCompileAndExecute(sourceFilePath: string) {
 	const astProgram = linker.compile();
 	const compiler = new Compiler(astProgram);
 	const irProgram = compiler.compile();
-	fs.writeFileSync("../debug/ir.txt", IRBuilder.getDebugText(irProgram, true));
+	fs.writeFileSync("../debug/ir.txt", IRBuilder.getDebugText(irProgram, false));
 	const optimizer = new IROptimizer(irProgram);
 	const optimizedIrProgram = optimizer.optimize();
 	fs.writeFileSync("../debug/optimizedIr.txt", IRBuilder.getDebugText(optimizedIrProgram, false));

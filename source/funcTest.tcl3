@@ -1,8 +1,7 @@
-// EXPECT: 24
-// EXPECT: 42
-// EXPECT: 42
+// EXPECT: 6
 
+fn add(left: int, right: int): int left + right
 
 fn main(): void {
-	out 24 + 12;
+	out add(1, add(2, 3));
 }

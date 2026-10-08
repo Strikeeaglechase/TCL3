@@ -101,13 +101,14 @@ class Compiler {
 	public builder: IRBuilder = new IRBuilder();
 	protected structs: Map<string, Struct> = new Map();
 	private enums: Map<string, Enum> = new Map();
-	public functions: Map<string, FunctionContext> = new Map();
+	public functions: Map<string, FunctionContext[]> = new Map();
+	private mainLabel: string = "main";
 
 	constructor(private program: Program) {}
 
 	public compile() {
 		this.builder.move(imm(255), reg(Register.memPtr));
-		this.builder.move(label("main"), reg(Register.pc));
+		this.builder.move(label(this.mainLabel), reg(Register.pc));
 
 		this.program.body.forEach(node => {
 			this.compileAst(node);
@@ -756,7 +757,7 @@ class Compiler {
 		this.builder.out(reg(Register.r0));
 	}
 
-	public areTypesEqual(typeA: ASTTypeRef, typeB: ASTTypeRef): boolean {
+	public areTypesEqual(typeA: ASTTypeRef, typeB: ASTTypeRef, ignoreFnReturnType = false): boolean {
 		if (typeA == null || typeB == null) return typeA == typeB;
 		if (typeA.type != typeB.type) return false;
 
@@ -771,20 +772,18 @@ class Compiler {
 		if (typeA.type == ASTType.FunctionTypeRef && typeB.type == ASTType.FunctionTypeRef) {
 			if (typeA.parameters.length != typeB.parameters.length) return false;
 			if (!typeA.parameters.every((param, index) => this.areTypesEqual(param, typeB.parameters[index]))) return false;
-			return this.areTypesEqual(typeA.returnType, typeB.returnType);
+			if (!ignoreFnReturnType) return this.areTypesEqual(typeA.returnType, typeB.returnType);
+			return true;
 		}
 
 		return false;
 	}
-
-	private checkFunctionReturnType(node: FunctionDeclaration) {}
 
 	public handleFunctionDeclaration(node: FunctionDeclaration): FunctionContext {
 		if (this.currentContext != null) throw new Error(`Nested function declarations are not supported.`);
 
 		const argSize = node.parameters.reduce((acc, param) => acc + this.resolveTypeSize(param.type), 0);
 		const funcCtx = new FunctionContext(this, node);
-		this.functions.set(node.name, funcCtx);
 		this.currentContext = funcCtx;
 
 		if (node.name != "main") {
@@ -802,6 +801,12 @@ class Compiler {
 		let argStackOffset = -argSize - 2;
 
 		funcCtx.setupTypeInformation();
+
+		if (!this.functions.has(node.name)) this.functions.set(node.name, []);
+		const existingTypeSig = this.functions.get(node.name).find(f => this.areTypesEqual(f.type, funcCtx.type, true));
+		if (existingTypeSig) throw new Error(`Function ${node.name} with the same type signature already exists.`);
+
+		this.functions.get(node.name).push(funcCtx);
 
 		const returnSize = this.resolveTypeSize(node.returnType);
 
@@ -822,7 +827,6 @@ class Compiler {
 		// Skip function epilogue
 		if (node.name == "main") {
 			this.currentContext = null;
-			// this.builder.setEntryPoint(funcCtx.name);
 			return funcCtx;
 		}
 
@@ -850,12 +854,40 @@ class Compiler {
 		return funcCtx;
 	}
 
+	private tryResolvingFunctionWithSimpleName(call: FunctionCall): FunctionContext {
+		const funcDecls = this.functions.get(call.reference.identifier);
+		if (funcDecls == null) return null;
+		if (funcDecls.length == 1) return funcDecls[0];
+
+		const fnCallType: FunctionTypeRef = {
+			type: ASTType.FunctionTypeRef,
+			parameters: call.arguments.map(arg => this.inferTypeFrom(arg)),
+			returnType: null // Unknown
+		};
+
+		if (fnCallType.parameters.some(param => param == null))
+			throw new Error(`Cannot infer types for all parameters of function call to ${call.reference.identifier}.`);
+
+		const matchingFunc = funcDecls.find(f => this.areTypesEqual(f.type, fnCallType, true));
+		if (!matchingFunc) {
+			throw new Error(
+				`No matching function found for call to ${call.reference.identifier} with parameter types (${fnCallType.parameters.map(p => typeToStr(p)).join(", ")}).`
+			);
+		}
+
+		return matchingFunc;
+	}
+
 	private getReturnTypeForCall(call: FunctionCall): ASTTypeRef {
 		if (call.reference.offsetExpressions == null && !call.reference.child) {
 			const builtin = builtInFunctions.find(b => b.name == call.reference.identifier);
 			if (builtin) return builtin.returnType;
 
-			const funcDecl = this.functions.get(call.reference.identifier);
+			// const funcDecls = this.functions.get(call.reference.identifier);
+			// if (funcDecls != null) {
+			// 	return funcDecl.type.returnType;
+			// }
+			const funcDecl = this.tryResolvingFunctionWithSimpleName(call);
 			if (funcDecl) return funcDecl.type.returnType;
 
 			if (this.currentContext.isDefined(call.reference.identifier)) {
@@ -882,9 +914,28 @@ class Compiler {
 				return;
 			}
 
-			const funcDecl = this.functions.get(node.reference.identifier);
-			if (funcDecl) {
-				this.callFunction(funcDecl.name, funcDecl.getCallInfo(), node);
+			const funcDecls = this.functions.get(node.reference.identifier);
+			if (funcDecls != null) {
+				if (funcDecls.length == 1) {
+					this.callFunction(funcDecls[0].name, funcDecls[0].getCallInfo(), node);
+					return;
+				}
+
+				const fnCallType: FunctionTypeRef = {
+					type: ASTType.FunctionTypeRef,
+					parameters: node.arguments.map(arg => this.inferTypeFrom(arg)),
+					returnType: null // Unknown
+				};
+
+				if (fnCallType.parameters.some(param => param == null))
+					throw new Error(`Cannot infer types for all parameters of function call to ${node.reference.identifier}.`);
+				const matchingFunc = funcDecls.find(f => this.areTypesEqual(f.type, fnCallType, true));
+				if (!matchingFunc)
+					throw new Error(
+						`No matching function found for call to ${node.reference.identifier} with parameter types (${fnCallType.parameters.map(p => typeToStr(p)).join(", ")}).`
+					);
+
+				this.callFunction(matchingFunc.name, matchingFunc.getCallInfo(), node);
 				return;
 			}
 
@@ -950,7 +1001,7 @@ class Compiler {
 		this.builder.add(reg(Register.pc), imm(2), reg(Register.r0));
 		this.builder.push(reg(Register.r0));
 
-		this.builder.comment(`Jump`);
+		this.builder.comment(`Jump (complex)`);
 		this.builder.move(memReg(Register.sp, -argumentSize - 2), reg(Register.pc));
 
 		this.builder.comment(`Clean up stack after call to ${referenceToString(call.reference)}`);

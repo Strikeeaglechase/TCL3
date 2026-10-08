@@ -6,7 +6,10 @@ const mem = (address: number) => new IRArgument("MEM", address.toString());
 const memReg = (register: Register, offset?: number) => new IRArgument("MEM_REG", register, offset);
 const str = (value: string) => new IRArgument("STR", value);
 const nopArg = () => new IRArgument("NOP", "0");
-const label = (label: string) => new IRArgument("LABEL", label);
+const label = (label: string) => {
+	if (!label) throw new Error("Label cannot be empty");
+	return new IRArgument("LABEL", label);
+};
 
 const simpleThreeArgInstructions = [
 	"ADD",
@@ -37,10 +40,6 @@ class _IRBuilder implements IStringProvider {
 
 	public get currentAddress() {
 		return this.program.code.length;
-	}
-
-	public setEntryPoint(lab: string) {
-		this.program.code.unshift(new IRCodeLine("MOV", label(lab), reg(Register.pc)));
 	}
 
 	public move(from: IRArgument, to: IRArgument) {
