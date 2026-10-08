@@ -1,0 +1,28 @@
+// EXPECT: 3
+
+struct Counter {
+	value: int;
+
+	fn add(amount: int): void {
+		this->value += amount;
+	}
+}
+
+struct Wrapper {
+	counter: Counter;
+}
+
+fn addRepeatedly(wrapper: Wrapper*, repetitions: int): void {
+	for (let index: int = 0; index < repetitions; index += 1) {
+		wrapper->counter.add(1);
+	}
+}
+
+fn main(): void {
+	let counter: Counter = {value: 0};
+	let wrapper: Wrapper = {};
+	wrapper.counter = counter;
+
+	addRepeatedly(&wrapper, 3);
+	out wrapper.counter.value;
+}

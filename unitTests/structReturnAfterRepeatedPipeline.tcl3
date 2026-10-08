@@ -1,0 +1,66 @@
+// EXPECT: 9
+
+struct Stats {
+	total: int;
+	count: int;
+
+	fn record(value: int): void {
+		this->total += value;
+		this->count += 1;
+	}
+
+	fn average(): int {
+		return this->total / this->count;
+	}
+}
+
+struct Pipeline {
+	apply: Fn<int, int>;
+	stats: Stats;
+}
+
+struct Pair {
+	left: int;
+	right: int;
+}
+
+fn increment(value: int): int value + 1
+
+fn double(value: int): int value * 2
+
+fn makePair(left: int, right: int): Pair {
+	let pair: Pair = {left: left, right: right};
+	return pair;
+}
+
+fn main(): void {
+	let pairCount: int = 4;
+	let pairs: Pair[pairCount] = {
+		makePair(1, 2),
+		makePair(3, 1),
+		makePair(5, 3),
+		makePair(7, 2)
+	};
+
+	let emptyStats: Stats = {total: 0, count: 0};
+	let pipeline: Pipeline = {apply: increment};
+	pipeline.stats = emptyStats;
+
+	for (let firstIndex: int = 0; firstIndex < pairCount; firstIndex += 1) {
+		let firstValue = pipeline.apply(pairs[firstIndex].left);
+		pipeline.stats.record(firstValue * pairs[firstIndex].right);
+	}
+	let firstAverage = pipeline.stats.average();
+
+	pipeline.apply = double;
+	pipeline.stats.total = 0;
+	pipeline.stats.count = 0;
+
+	for (let secondIndex: int = 0; secondIndex < pairCount; secondIndex += 1) {
+		let secondValue = pipeline.apply(pairs[secondIndex].left);
+		pipeline.stats.record(secondValue * pairs[secondIndex].right);
+	}
+	let secondAverage = pipeline.stats.average();
+
+	out makePair(9, 4).left;
+}

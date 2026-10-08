@@ -1030,7 +1030,6 @@ class Compiler {
 		if (thisArgRef) {
 			this.builder.comment(`Evaluating thisArg for method call ${name}`);
 			this.handleReferenceRead(thisArgRef, true); // Push a thisarg pointer
-			argumentSize += 1;
 		}
 		call.arguments.forEach(arg => this.compileAst(arg));
 
