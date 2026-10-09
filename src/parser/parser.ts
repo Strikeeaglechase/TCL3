@@ -29,7 +29,7 @@ import {
 } from "./ast.js";
 import { operandPrecedence, Token, TokenType } from "./tokenizer.js";
 
-const allowedOperatorOverloads = "+-*/[";
+const allowedOperatorOverloads = ["+", "-", "*", "/", "[", "==", "!=", "<", ">", "<=", ">=", "&&", "||", "&", "|", "^", "<<", ">>"];
 const builtinTypes = ["int", "char", "bool", "void"];
 
 let id = 0;
@@ -286,8 +286,8 @@ class Parser {
 		const nameToken = this.tokenStream.next();
 		let name = nameToken.value;
 		// Operator overloaded function
-		if (nameToken.type == TokenType.LiteralNumber) {
-			const operator = String.fromCharCode(parseInt(nameToken.value));
+		if (nameToken.type == TokenType.LiteralString) {
+			const operator = nameToken.value.slice(1, -1); // Remove the quotes from the operator string
 			if (!allowedOperatorOverloads.includes(operator)) {
 				throw new Error(`Operator ${operator} is not allowed to be overloaded`);
 			}
@@ -734,9 +734,29 @@ class Parser {
 		return init;
 	}
 
-	private maybeStartBinaryExpression(ast: AST) {
+	private maybeStartBinaryExpressionOrBlockedReference(ast: AST): AST {
 		const peaked = this.tokenStream.peak();
 		if (peaked.type == TokenType.Operator) return this.parseBinaryExpression(ast);
+
+		if (peaked.type == TokenType.Symbol && (peaked.value == "." || peaked.value == "[" || peaked.value == "->")) {
+			const tempVarName = `__func_ret_temp_${id++}`;
+			const tempVarDecl: VariableDeclaration = {
+				type: ASTType.VariableDeclaration,
+				name: tempVarName,
+				variableType: null, // Infer type
+				initializer: ast,
+				arraySizeExpression: null
+			};
+
+			const remainingRef = this.parseIdentifier(tempVarName, 0);
+			const block: Block = {
+				type: ASTType.Block,
+				body: [tempVarDecl, remainingRef]
+			};
+
+			return this.maybeStartBinaryExpressionOrBlockedReference(block);
+		}
+
 		return ast;
 	}
 
@@ -750,7 +770,7 @@ class Parser {
 			case "(":
 				const inner = this.parseStatement();
 				this.tokenStream.consumeTV(TokenType.Symbol, ")");
-				return this.maybeStartBinaryExpression(inner);
+				return this.maybeStartBinaryExpressionOrBlockedReference(inner);
 			default:
 				throw new Error(`Unexpected symbol: ${symbol}`);
 		}
@@ -763,7 +783,7 @@ class Parser {
 			literalType: literal.type == TokenType.LiteralNumber ? "number" : "string"
 		};
 
-		return this.maybeStartBinaryExpression(lit);
+		return this.maybeStartBinaryExpressionOrBlockedReference(lit);
 	}
 }
 

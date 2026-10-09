@@ -5,7 +5,7 @@ import { FunctionContext } from "./functionContext.js";
 class Struct {
 	public name: string;
 	public fields: Map<string, { type: ASTTypeRef; offset: number }> = new Map();
-	public methods: Map<string, FunctionContext> = new Map();
+	public methods: Map<string, FunctionContext[]> = new Map();
 	public size: number = 0;
 
 	constructor(
@@ -23,7 +23,18 @@ class Struct {
 	public buildMethods() {
 		this.def.methods.forEach(method => {
 			const funcCtx = this.compiler.handleFunctionDeclaration(method);
-			this.methods.set(method.name, funcCtx);
+			if (!this.methods.has(method.name)) this.methods.set(method.name, []);
+			const fnList = this.methods.get(method.name);
+			if (fnList.length > 0) {
+				const existingReturnType = fnList[0].type.returnType;
+				if (!this.compiler.areTypesEqual(existingReturnType, funcCtx.type.returnType)) {
+					throw new Error(
+						`Method '${method.name}' in struct '${this.name}' has inconsistent return types across overloads. Methods must have a consistent return type, standard functions may differ`
+					);
+				}
+			}
+
+			this.methods.get(method.name).push(funcCtx);
 		});
 	}
 }

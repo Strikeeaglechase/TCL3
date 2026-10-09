@@ -305,11 +305,16 @@ class FunctionContext {
 
 	public getTypeOfLocal(name: string): ASTTypeRef {
 		if (!this.isDefined(name)) throw new Error(`Local variable '${name}' is not defined in function '${this.name}'.`);
+		if (this.compiler.functions.has(name)) {
+			const fns = this.compiler.functions.get(name);
+			if (fns.length > 1) throw new Error(`Unable to get type of function '${name}' due to being an overloaded function`);
+			return fns[0].type;
+		}
 		return this.locals.get(name)?.type ?? this.forwardDeclaredParameters.get(name)?.type;
 	}
 
 	public isDefined(name: string): boolean {
-		return this.locals.has(name) || this.forwardDeclaredParameters.has(name);
+		return this.locals.has(name) || this.forwardDeclaredParameters.has(name) || this.compiler.functions.has(name);
 	}
 
 	// Ensures the current frame has enough space to allow the return value to be written to the top of the stack

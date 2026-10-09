@@ -24,7 +24,8 @@ import {
 	StructDeclaration,
 	UnaryExpression,
 	VariableDeclaration,
-	WhileLoop
+	WhileLoop,
+	WrappedTypeRef
 } from "../parser/ast.js";
 import { BuiltInFunction, builtInFunctions } from "./builtInFunctions.js";
 import { FunctionContext } from "./functionContext.js";
@@ -94,6 +95,42 @@ const primitiveSizeMap: Record<string, number> = {
 	void: 0,
 	int: INT_SIZE
 };
+
+const intType = (): RawTypeRef => {
+	return { type: ASTType.RawTypeRef, rawType: "int" };
+};
+
+const voidType = (): RawTypeRef => {
+	return { type: ASTType.RawTypeRef, rawType: "void" };
+};
+
+const ptrOf = (type: ASTTypeRef): WrappedTypeRef => {
+	return { type: ASTType.WrappedTypeRef, inner: type };
+};
+
+class BinaryExpressionTypeEvalResult {
+	private constructor(
+		public readonly method: FunctionContext,
+		public readonly left: AST,
+		public readonly right: AST,
+		public readonly struct: Struct,
+
+		public readonly failedToEvaluateType: boolean,
+		public readonly isOpOverload: boolean
+	) {}
+
+	public static failed(): BinaryExpressionTypeEvalResult {
+		return new BinaryExpressionTypeEvalResult(null, null, null, null, true, false);
+	}
+
+	public static notOpOverload(): BinaryExpressionTypeEvalResult {
+		return new BinaryExpressionTypeEvalResult(null, null, null, null, false, false);
+	}
+
+	public static opOverload(method: FunctionContext, left: AST, right: AST, struct: Struct): BinaryExpressionTypeEvalResult {
+		return new BinaryExpressionTypeEvalResult(method, left, right, struct, false, true);
+	}
+}
 
 class Compiler {
 	private currentContext: FunctionContext = null;
@@ -219,8 +256,6 @@ class Compiler {
 		const finalTypeSize = this.resolveTypeSize(currentType.inner);
 		for (let i = 0; i < finalTypeSize; i++) {
 			this.builder.push(memReg(Register.r0, i));
-			// this.builder.add(memReg(Register.r0), imm(i), reg(Register.r1));
-			// this.builder.push(memReg(Register.r1));
 		}
 	}
 
@@ -287,6 +322,22 @@ class Compiler {
 	private handleAssignment(node: Assignment) {
 		if (!this.currentContext) throw new Error(`Unexpected assignment outside of a function context.`);
 		this.builder.comment(`Assignment to ${referenceToString(node.reference)}`);
+
+		const expressionType = this.inferTypeFrom(node.expression);
+		const refType = this.inferTypeFrom(node.reference);
+
+		if (expressionType == null || refType == null) {
+			console.log(
+				chalk.yellow(
+					`Could not infer type for assignment: reference '${refType ? typeToStr(refType) : `unknown: ${node.reference.type}`}', expression '${expressionType ? typeToStr(expressionType) : `unknown: ${node.expression.type}`}'`
+				)
+			);
+		} else {
+			if (!this.areTypesEqual(expressionType, refType)) {
+				// throw new Error(`Type mismatch in assignment, expression type: ${typeToStr(expressionType)}, reference type: ${typeToStr(refType)}`);
+				console.log(chalk.yellow(`Type mismatch in assignment: reference '${typeToStr(refType)}' != expression '${typeToStr(expressionType)}'`));
+			}
+		}
 
 		// Evaluate the expression, expect result on the stack
 		this.compileAst(node.expression);
@@ -457,7 +508,26 @@ class Compiler {
 
 		if (!node.child && node.offsetExpressions == null) {
 			if (suppressUndefinedVariableError && !this.currentContext.isDefined(node.identifier)) return null;
-			return { type: this.currentContext.getTypeOfLocal(node.identifier), isMethod: false };
+			if (node.dereferenceCount > 0) {
+				let curType = this.currentContext.getTypeOfLocal(node.identifier);
+				for (let i = 0; i < node.dereferenceCount; i++) {
+					if (curType.type != ASTType.WrappedTypeRef)
+						throw new Error(`Attempt to dereference a non-pointer type '${typeToStr(curType)}' for reference '${node.identifier}'.`);
+					curType = curType.inner;
+				}
+
+				return { type: curType, isMethod: false };
+			} else {
+				return { type: this.currentContext.getTypeOfLocal(node.identifier), isMethod: false };
+			}
+		}
+
+		if (this.enums.has(node.identifier)) {
+			const enumDecl = this.enums.get(node.identifier);
+			if (!enumDecl.variants.has(node.child.identifier))
+				throw new Error(`Enum '${node.identifier}' does not have a variant named '${node.child.identifier}'.`);
+
+			return { type: intType(), isMethod: false };
 		}
 
 		const { offset, readType } = this.getReferenceOffsetWithoutDerefs(node);
@@ -482,7 +552,7 @@ class Compiler {
 					const fn = structDef.methods.has(curRef.identifier);
 					if (!fn) throw new Error(`Struct type '${currentType.rawType}' does not have a field named '${curRef.identifier}'.`);
 
-					return { type: structDef.methods.get(curRef.identifier).type, isMethod: true, methodStructDecl: structDef };
+					return { type: structDef.methods.get(curRef.identifier)[0].type, isMethod: true, methodStructDecl: structDef };
 				}
 
 				currentType = field.type;
@@ -565,7 +635,64 @@ class Compiler {
 		}
 	}
 
+	private getMethodForOverloadedBinaryExpression(node: BinaryExpression): BinaryExpressionTypeEvalResult {
+		const leftType = this.inferTypeFrom(node.left);
+		const rightType = this.inferTypeFrom(node.right);
+
+		if (leftType == null || rightType == null) {
+			// console.log(
+			// 	chalk.yellow(
+			// 		`Could not infer type for binary expression operands, left: ${leftType ? typeToStr(leftType) : `unknown: ${node.left.type}`}, right: ${rightType ? typeToStr(rightType) : `unknown: ${node.right.type}`}`
+			// 	)
+			// );
+
+			return BinaryExpressionTypeEvalResult.failed();
+		} else {
+			if (!this.isEffectivelyIntType(leftType) || !this.isEffectivelyIntType(rightType)) {
+				// Find type overload for operator
+				const commutativeOperators = ["+", "*", "==", "!=", "&", "|", "^"];
+				// Ensure that if there's an int op here, it's not the left hand side, as we will expect fn type sigs to be of Fn<struct, int, ret>
+				const needsSwap = this.isEffectivelyIntType(leftType) && commutativeOperators.includes(node.operator);
+
+				const opArgs = needsSwap ? [rightType, leftType] : [leftType, rightType];
+				const finalLeftType = needsSwap ? rightType : leftType;
+
+				if (finalLeftType.type != ASTType.RawTypeRef)
+					throw new Error(`Attempt to perform '${node.operator}' operator on non-raw type '${typeToStr(finalLeftType)}'`);
+
+				const structDef = this.structs.get(finalLeftType.rawType);
+				if (!structDef) throw new Error(`Type information for '${finalLeftType.rawType}' is not available, cannot perform operator '${node.operator}'.`);
+
+				const overloadMethods = structDef.methods.get(node.operator);
+				if (!overloadMethods) throw new Error(`Struct type '${finalLeftType.rawType}' does not have an overload for operator '${node.operator}'.`);
+
+				// LHS is the struct, first argument will be the this pointer
+				const argumentList = [ptrOf(opArgs[0]), opArgs[1]];
+				const matchingMethod = this.findFunctionMatchingArgumentList(overloadMethods, argumentList);
+
+				return BinaryExpressionTypeEvalResult.opOverload(matchingMethod, needsSwap ? node.right : node.left, needsSwap ? node.left : node.right, structDef);
+			}
+		}
+
+		return BinaryExpressionTypeEvalResult.notOpOverload();
+	}
+
 	private handleBinaryExpression(node: BinaryExpression) {
+		const overloadResult = this.getMethodForOverloadedBinaryExpression(node);
+		if (overloadResult.isOpOverload) {
+			const { method, left, right, struct } = overloadResult;
+			if (left.type != ASTType.Reference) throw new Error(`Left operand of overloaded operator must be a reference to a struct, got ${left.type}`);
+
+			const call: FunctionCall = {
+				type: ASTType.FunctionCall,
+				reference: left,
+				arguments: [right]
+			};
+
+			this.callMethod(struct, method.name, call);
+			return;
+		}
+
 		this.compileAst(node.left);
 		this.compileAst(node.right);
 		this.builder.pop(reg(Register.r1));
@@ -649,7 +776,7 @@ class Compiler {
 	public inferTypeFrom(initializer: AST): ASTTypeRef {
 		switch (initializer.type) {
 			case ASTType.Literal:
-				return { type: ASTType.RawTypeRef, rawType: "int" }; // All literals are integers for now
+				return intType(); // All literals are integers for now
 			case ASTType.Reference:
 				return this.getFinalTypeOfReference(initializer, true)?.type;
 			case ASTType.FunctionCall:
@@ -658,7 +785,7 @@ class Compiler {
 			case ASTType.Block:
 				return this.inferTypeFrom(initializer.body[initializer.body.length - 1]);
 			case ASTType.AddressOf:
-				return { type: ASTType.WrappedTypeRef, inner: this.getFinalTypeOfReference(initializer.reference).type };
+				return ptrOf(this.getFinalTypeOfReference(initializer.reference).type);
 			case ASTType.Dereference:
 				let operandType = this.inferTypeFrom(initializer.operand);
 				for (let i = 0; i < initializer.dereferenceCount; i++) {
@@ -669,7 +796,7 @@ class Compiler {
 			case ASTType.BinaryExpression:
 				return this.evaluateTypeOfBinaryExpression(initializer);
 			case ASTType.Semicolon:
-				return { type: ASTType.RawTypeRef, rawType: "void" };
+				return voidType();
 			default:
 				console.log(chalk.yellow(`Cannot infer type from initializer of type: ${initializer.type}`));
 				return null; // Cannot infer type
@@ -677,8 +804,9 @@ class Compiler {
 	}
 
 	private evaluateTypeOfBinaryExpression(node: BinaryExpression): ASTTypeRef {
-		// TODO: Support operator overloading
-		// For now, we will just return the type of the left operand
+		const overloadResult = this.getMethodForOverloadedBinaryExpression(node);
+		if (overloadResult.failedToEvaluateType) return null;
+		if (overloadResult.isOpOverload) return overloadResult.method.type.returnType;
 		return this.inferTypeFrom(node.left);
 	}
 
@@ -778,6 +906,15 @@ class Compiler {
 		return false;
 	}
 
+	private isEffectivelyIntType(type: ASTTypeRef): boolean {
+		if (type.type != ASTType.RawTypeRef) return false;
+		if (type.rawType == "int" || type.rawType == "char" || type.rawType == "bool") return true;
+
+		if (this.enums.has(type.rawType)) return true; // Enums are effectively ints
+
+		return false;
+	}
+
 	public handleFunctionDeclaration(node: FunctionDeclaration): FunctionContext {
 		if (this.currentContext != null) throw new Error(`Nested function declarations are not supported.`);
 
@@ -811,7 +948,7 @@ class Compiler {
 
 		// There will be a return address as the first argument
 		if (returnSize > 1) {
-			funcCtx.defineArgumentVariable("__returnPointer", { type: ASTType.WrappedTypeRef, inner: funcCtx.type.returnType }, argStackOffset - 1);
+			funcCtx.defineArgumentVariable("__returnPointer", ptrOf(funcCtx.type.returnType), argStackOffset - 1);
 		}
 
 		// this.builder.commentln(`Arg setup fn "${node.name}":`);
@@ -915,25 +1052,8 @@ class Compiler {
 
 			const funcDecls = this.functions.get(node.reference.identifier);
 			if (funcDecls != null) {
-				if (funcDecls.length == 1) {
-					this.callFunction(funcDecls[0].name, funcDecls[0].getCallInfo(), node);
-					return;
-				}
-
-				const fnCallType: FunctionTypeRef = {
-					type: ASTType.FunctionTypeRef,
-					parameters: node.arguments.map(arg => this.inferTypeFrom(arg)),
-					returnType: null // Unknown
-				};
-
-				if (fnCallType.parameters.some(param => param == null))
-					throw new Error(`Cannot infer types for all parameters of function call to ${node.reference.identifier}.`);
-				const matchingFunc = funcDecls.find(f => this.areTypesEqual(f.type, fnCallType, true));
-				if (!matchingFunc)
-					throw new Error(
-						`No matching function found for call to ${node.reference.identifier} with parameter types (${fnCallType.parameters.map(p => typeToStr(p)).join(", ")}).`
-					);
-
+				const argumentList = node.arguments.map(arg => this.inferTypeFrom(arg));
+				const matchingFunc = this.findFunctionMatchingArgumentList(funcDecls, argumentList);
 				this.callFunction(matchingFunc.name, matchingFunc.getCallInfo(), node);
 				return;
 			}
@@ -963,6 +1083,24 @@ class Compiler {
 		}
 	}
 
+	private findFunctionMatchingArgumentList(functions: FunctionContext[], argumentTypes: ASTTypeRef[]): FunctionContext {
+		if (functions.length == 0) throw new Error(`No functions provided to match argument list.`);
+		if (functions.length == 1) return functions[0];
+
+		if (argumentTypes.some(argType => argType == null)) throw new Error(`Cannot infer all argument types for function call, cannot resolve overloads.`);
+
+		const expectedFnType: FunctionTypeRef = {
+			type: ASTType.FunctionTypeRef,
+			parameters: argumentTypes,
+			returnType: null // Unknown
+		};
+
+		const matchingFunc = functions.find(f => this.areTypesEqual(f.type, expectedFnType, true));
+		if (!matchingFunc) throw new Error(`No matching function found for argument types (${argumentTypes.map(t => typeToStr(t)).join(", ")})`);
+
+		return matchingFunc;
+	}
+
 	private callFunctionViaComplexReference(call: FunctionCall) {
 		const { type, isMethod, methodStructDecl } = this.getFinalTypeOfReference(call.reference);
 		if (type.type !== ASTType.FunctionTypeRef)
@@ -971,10 +1109,7 @@ class Compiler {
 		if (isMethod) {
 			// Remove the function name from reference chain
 			const methodName = this.deleteRefsFinalChild(call.reference);
-			const method = methodStructDecl.methods.get(methodName.identifier);
-			const debugName = `${methodStructDecl.name}_${methodName.identifier}`;
-			this.builder.comment(`Calling method ${debugName}`);
-			this.callFunction(debugName, method.getCallInfo(), call, call.reference);
+			this.callMethod(methodStructDecl, methodName.identifier, call);
 			return;
 		}
 
@@ -1009,6 +1144,18 @@ class Compiler {
 
 		if (returnSize == 1) this.builder.push(reg(Register.funcRet));
 		else if (returnSize > 1) this.currentContext.readVarToStack(returnVarName);
+	}
+
+	private callMethod(struct: Struct, methodName: string, call: FunctionCall) {
+		const methods = struct.methods.get(methodName);
+		const debugName = `${struct.name}_${methodName}`;
+		this.builder.comment(`Calling method ${debugName}`);
+
+		const argumentList = call.arguments.map(arg => this.inferTypeFrom(arg));
+		argumentList.unshift(ptrOf({ type: ASTType.RawTypeRef, rawType: struct.name })); // Add this pointer as first argument
+		const matchingMethod = this.findFunctionMatchingArgumentList(methods, argumentList);
+
+		this.callFunction(debugName, matchingMethod.getCallInfo(), call, call.reference);
 	}
 
 	// Name is only for debug info/symbols

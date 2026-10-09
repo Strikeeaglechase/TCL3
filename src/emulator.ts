@@ -41,7 +41,6 @@ class Emulator {
 			if (line instanceof IRLabelLine) {
 				if (this.labelIndexes.has(line.label)) throw new Error(`Duplicate label found: ${line.label}`);
 				this.labelIndexes.set(line.label, index);
-				if (!silent) console.log(`${line.label} -> ${index}`);
 			}
 		});
 
