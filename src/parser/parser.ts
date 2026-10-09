@@ -88,7 +88,7 @@ class Parser {
 	private paresKeyword(keyword: string) {
 		switch (keyword) {
 			case "fn":
-				return this.handleFunctionDeclaration(false);
+				return this.handleFunctionDeclaration(false, false);
 			case "let":
 				return this.handleVariableDeclaration();
 			case "struct":
@@ -239,8 +239,14 @@ class Parser {
 
 			if (peaked.type == TokenType.Keyword && peaked.value == "fn") {
 				this.tokenStream.consumeTV(TokenType.Keyword, "fn");
-				const func = this.handleFunctionDeclaration(true);
+				const func = this.handleFunctionDeclaration(true, false);
 				func.parameters.unshift({ name: "this", type: this.createPointerTypeTo(name) }); // Add this parameter
+				methods.push(func);
+			} else if (peaked.type == TokenType.Keyword && peaked.value == "static") {
+				this.tokenStream.consumeTV(TokenType.Keyword, "static");
+				this.tokenStream.consumeTV(TokenType.Keyword, "fn");
+
+				const func = this.handleFunctionDeclaration(true, true);
 				methods.push(func);
 			} else if (peaked.type == TokenType.Identifier) {
 				const fieldName = this.tokenStream.consumeType(TokenType.Identifier).value;
@@ -304,7 +310,7 @@ class Parser {
 		return { type: ASTType.WrappedTypeRef, inner: { type: ASTType.RawTypeRef, rawType: raw } };
 	}
 
-	private handleFunctionDeclaration(structMethod: boolean) {
+	private handleFunctionDeclaration(structMethod: boolean, isStatic: boolean) {
 		const nameToken = this.tokenStream.next();
 		let name = nameToken.value;
 		// Operator overloaded function
@@ -334,7 +340,8 @@ class Parser {
 			name: name,
 			parameters: parameters,
 			returnType: returnType,
-			body: body
+			body: body,
+			static: isStatic
 		};
 
 		return funcDecl;

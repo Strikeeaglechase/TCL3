@@ -45,6 +45,7 @@ export interface FunctionDeclaration extends ASTNode {
 	parameters: { name: string; type: ASTTypeRef }[];
 	returnType: ASTTypeRef;
 	body: AST[];
+	static: boolean;
 }
 
 export interface WrappedTypeRef extends ASTNode {

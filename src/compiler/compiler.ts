@@ -571,6 +571,22 @@ class Compiler {
 			return { type: intType(), isMethod: false };
 		}
 
+		if (this.structs.has(node.identifier)) {
+			const structDecl = this.structs.get(node.identifier);
+			if (!structDecl.methods.has(node.child.identifier))
+				throw new Error(`Struct type '${node.identifier}' does not have a method named '${node.child.identifier}'.`);
+
+			const fnList = structDecl.methods.get(node.child.identifier);
+			if (fnList == null) throw new Error(`Struct type '${node.identifier}' does not have a method named '${node.child.identifier}'.`);
+			if (fnList.length > 1)
+				throw new Error(`Static method cannot be overloaded, struct type '${node.identifier}' has multiple methods named '${node.child.identifier}'.`);
+
+			const fn = fnList[0];
+			if (!fn.isStatic) throw new Error(`Static method expected, but method '${node.child.identifier}' of struct type '${node.identifier}' is not static.`);
+
+			return { type: fn.type, isMethod: false };
+		}
+
 		const { offset, readType } = this.getReferenceOffsetWithoutDerefs(node);
 		if (offset >= 0) return { type: readType, isMethod: false };
 
@@ -1107,6 +1123,29 @@ class Compiler {
 
 			throw new Error(`Attempt to call ${node.reference.identifier} which is not defined`);
 		} else {
+			if (this.structs.has(node.reference.identifier)) {
+				const structDecl = this.structs.get(node.reference.identifier);
+				if (!structDecl.methods.has(node.reference.child.identifier))
+					throw new Error(`Struct type '${node.reference.identifier}' does not have a method named '${node.reference.child.identifier}'.`);
+
+				const fnList = structDecl.methods.get(node.reference.child.identifier);
+				if (fnList == null)
+					throw new Error(`Struct type '${node.reference.identifier}' does not have a method named '${node.reference.child.identifier}'.`);
+				if (fnList.length > 1)
+					throw new Error(
+						`Static method cannot be overloaded, struct type '${node.reference.identifier}' has multiple methods named '${node.reference.child.identifier}'.`
+					);
+
+				const fn = fnList[0];
+				if (!fn.isStatic)
+					throw new Error(
+						`Static method expected, but method '${node.reference.child.identifier}' of struct type '${node.reference.identifier}' is not static.`
+					);
+
+				this.callFunction(`${node.reference.identifier}_${node.reference.child.identifier}`, fn.getCallInfo(), node);
+				return;
+			}
+
 			this.callFunctionViaComplexReference(node);
 		}
 	}

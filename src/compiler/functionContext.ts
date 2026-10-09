@@ -14,22 +14,23 @@ interface Local {
 
 let id = 0;
 class FunctionContext {
-	public name: string;
+	public readonly name: string;
 	public type: FunctionTypeRef;
 	public get callTypeSignature(): string {
 		return this.type.parameters.map(param => typeToStr(param)).join(", ");
 	}
-	public argSize: number;
+	public readonly argSize: number;
+	public readonly isStatic: boolean;
 
-	public outLabel: string = null;
-	public label: string = null;
+	public readonly outLabel: string = null;
+	public readonly label: string = null;
 
 	private locals: Map<string, Local> = new Map();
 	private forwardDeclaredParameters: Map<string, Omit<Local, "stackOffset">> = new Map();
 
 	private currentStackOffset: number = 0;
 
-	protected builder: IRBuilder;
+	protected readonly builder: IRBuilder;
 
 	constructor(
 		private compiler: Compiler,
@@ -44,6 +45,7 @@ class FunctionContext {
 		this.outLabel = `${this.name}_out_${fnId}`;
 		this.argSize = func.parameters.reduce((acc, param) => acc + this.compiler.resolveTypeSize(param.type), 0);
 		this.builder = this.compiler.builder;
+		this.isStatic = func.static;
 
 		this.builder.addLabel(this.label);
 	}
