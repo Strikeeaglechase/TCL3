@@ -8,6 +8,8 @@ import {
 	ASTType,
 	ASTTypeRef,
 	BinaryExpression,
+	BreakStatement,
+	ContinueStatement,
 	Dereference,
 	EnumDeclaration,
 	ForLoop,
@@ -141,6 +143,15 @@ class Compiler {
 	public functions: Map<string, FunctionContext[]> = new Map();
 	private mainLabel: string = "main";
 
+	private continueLabelStack: string[] = [];
+	private get continueLabel(): string {
+		return this.continueLabelStack[this.continueLabelStack.length - 1];
+	}
+	private breakLabelStack: string[] = [];
+	private get breakLabel(): string {
+		return this.breakLabelStack[this.breakLabelStack.length - 1];
+	}
+
 	constructor(private program: Program) {}
 
 	public compile() {
@@ -230,6 +241,12 @@ class Compiler {
 			case ASTType.Block:
 				node.body.forEach(bodyNode => this.compileAst(bodyNode));
 				break;
+			case ASTType.BreakStatement:
+				this.handleBreakStatement(node);
+				break;
+			case ASTType.ContinueStatement:
+				this.handleContinueStatement(node);
+				break;
 			default:
 				throw new Error(`Unsupported AST node type: ${node.type}`);
 		}
@@ -259,10 +276,25 @@ class Compiler {
 		}
 	}
 
+	private handleContinueStatement(node: ContinueStatement) {
+		if (this.continueLabel == null) throw new Error(`Continue statement used outside of a loop context.`);
+		this.builder.comment(`Continue statement`);
+		this.builder.jump(label(this.continueLabel));
+	}
+
+	private handleBreakStatement(node: BreakStatement) {
+		if (this.breakLabel == null) throw new Error(`Break statement used outside of a loop context.`);
+		this.builder.comment(`Break statement`);
+		this.builder.jump(label(this.breakLabel));
+	}
+
 	private handleForLoop(node: ForLoop) {
 		this.compileAst(node.initializer);
 		const loopTopLabel = `for_loop_top_${id++}`;
 		const loopEndLabel = `for_loop_end_${id++}`;
+
+		this.continueLabelStack.push(loopTopLabel);
+		this.breakLabelStack.push(loopEndLabel);
 
 		this.builder.addLabel(loopTopLabel);
 		this.compileAst(node.condition);
@@ -273,6 +305,9 @@ class Compiler {
 		this.compileAst(node.increment);
 		this.builder.jump(label(loopTopLabel));
 		this.builder.addLabel(loopEndLabel);
+
+		this.continueLabelStack.pop();
+		this.breakLabelStack.pop();
 	}
 
 	private handleIfStatement(node: IfStatement) {
@@ -307,6 +342,9 @@ class Compiler {
 		const loopTopLabel = `while_loop_top_${id++}`;
 		const loopEndLabel = `while_loop_end_${id++}`;
 
+		this.continueLabelStack.push(loopTopLabel);
+		this.breakLabelStack.push(loopEndLabel);
+
 		this.builder.addLabel(loopTopLabel);
 
 		this.compileAst(node.condition);
@@ -317,6 +355,9 @@ class Compiler {
 
 		this.builder.jump(label(loopTopLabel));
 		this.builder.addLabel(loopEndLabel);
+
+		this.continueLabelStack.pop();
+		this.breakLabelStack.pop();
 	}
 
 	private handleAssignment(node: Assignment) {

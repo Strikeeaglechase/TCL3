@@ -7,6 +7,8 @@ import {
 	ASTTypeRef,
 	BinaryExpression,
 	Block,
+	BreakStatement,
+	ContinueStatement,
 	Dereference,
 	EnumDeclaration,
 	ForLoop,
@@ -103,9 +105,29 @@ class Parser {
 				return this.handleIfStatement();
 			case "enum":
 				return this.handleEnumDeclaration();
+			case "break":
+				return this.handleBreakStatement();
+			case "continue":
+				return this.handleContinueStatement();
 			default:
 				throw new Error(`Unexpected keyword: ${keyword}`);
 		}
+	}
+
+	private handleBreakStatement() {
+		const breakStmt: BreakStatement = {
+			type: ASTType.BreakStatement
+		};
+
+		return breakStmt;
+	}
+
+	private handleContinueStatement() {
+		const continueStmt: ContinueStatement = {
+			type: ASTType.ContinueStatement
+		};
+
+		return continueStmt;
 	}
 
 	private handleForStatement() {

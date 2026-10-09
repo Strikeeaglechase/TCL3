@@ -1,6 +1,6 @@
 import { Stream } from "../stream.js";
 
-const keywords = ["if", "else", "elif", "while", "for", "return", "fn", "let", "struct", "enum", "out"];
+const keywords = ["if", "else", "elif", "while", "for", "return", "fn", "let", "struct", "enum", "out", "break", "continue", "static"];
 const operands = ["+", "-", "*", "/", "%", "|", "&", "^", "||", "&&", "!", "==", "!=", "<", ">", "<=", ">=", "~", ">>", "<<"];
 const symbols = ["(", ")", "[", "]", "{", "}", ";", ",", ".", "=", ":", "->", "+=", "-=", "*=", "/=", "%=", "|=", "&=", "^=", ">>=", "<<="];
 

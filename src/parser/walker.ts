@@ -60,7 +60,9 @@ const walkNodeHandlers: WalkHandlersMap = {
 	},
 	[ASTType.EnumDeclaration]: () => {},
 	[ASTType.Initializer]: (node, visitor) => node.values.forEach(visitor),
-	[ASTType.StructFieldInitializer]: (node, visitor) => visitor(node.expression)
+	[ASTType.StructFieldInitializer]: (node, visitor) => visitor(node.expression),
+	[ASTType.BreakStatement]: () => {},
+	[ASTType.ContinueStatement]: () => {}
 };
 
 const walk = (node: AST, visitor: (node: AST, depth: number) => void, depth = 0) => {

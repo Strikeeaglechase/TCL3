@@ -25,7 +25,9 @@ export enum ASTType {
 	ForLoop = "ForLoop",
 	WhileLoop = "WhileLoop",
 	IfStatement = "IfStatement",
-	Block = "Block"
+	Block = "Block",
+	BreakStatement = "BreakStatement",
+	ContinueStatement = "ContinueStatement"
 }
 
 export interface ASTNode {
@@ -184,6 +186,14 @@ export interface Block extends ASTNode {
 	body: AST[];
 }
 
+export interface BreakStatement extends ASTNode {
+	type: ASTType.BreakStatement;
+}
+
+export interface ContinueStatement extends ASTNode {
+	type: ASTType.ContinueStatement;
+}
+
 export type ASTTypeRef = WrappedTypeRef | FunctionTypeRef | RawTypeRef;
 
 export type AST =
@@ -213,4 +223,6 @@ export type AST =
 	| WhileLoop
 	| IfStatement
 	| Block
-	| Dereference;
+	| Dereference
+	| BreakStatement
+	| ContinueStatement;
