@@ -41,7 +41,6 @@ class Parser {
 	private rewrittenNames: Map<string, string> = new Map();
 	private unitName: string;
 	private enumRawNames: Set<string> = new Set();
-	private allowedToStartNewBinaryExpression = true;
 
 	constructor(
 		tokens: Token[],
@@ -67,21 +66,21 @@ class Parser {
 		return { type: ASTType.Program, body: body };
 	}
 
-	private parseStatement(): AST {
+	private parseStatement(allowBinaryExpression = true): AST {
 		const token = this.tokenStream.next();
 
 		switch (token.type) {
 			case TokenType.Keyword:
 				return this.paresKeyword(token.value);
 			case TokenType.Identifier:
-				return this.parseIdentifier(token.value, 0);
+				return this.parseIdentifier(token.value, 0, allowBinaryExpression);
 			case TokenType.Operator:
-				return this.parseOperator(token.value);
+				return this.parseOperator(token.value, allowBinaryExpression);
 			case TokenType.Symbol:
-				return this.parseSymbol(token.value);
+				return this.parseSymbol(token.value, allowBinaryExpression);
 			case TokenType.LiteralNumber:
 			case TokenType.LiteralString:
-				return this.parseLiteral(token);
+				return this.parseLiteral(token, allowBinaryExpression);
 			default:
 				throw new Error(`Unexpected token type: ${token.type}`);
 		}
@@ -409,7 +408,7 @@ class Parser {
 				this.tokenStream.consumeTV(TokenType.Symbol, ",");
 			}
 
-			args.push(this.parseStatement());
+			args.push(this.parseStatement(true));
 		}
 
 		this.tokenStream.consumeTV(TokenType.Symbol, ")");
@@ -501,26 +500,25 @@ class Parser {
 		return { type: currentType, arrayInit: arrayInit };
 	}
 
-	private parseBinaryExpression(leftHand: AST, prec = 0): AST {
-		const peaked = this.tokenStream.peak();
-		// console.log(peaked);
-		if (peaked.type != TokenType.Operator) return leftHand;
+	private parseBinaryExpression(leftHand: AST, maxPrecedence = Number.POSITIVE_INFINITY): AST {
+		while (!this.tokenStream.eof()) {
+			const peaked = this.tokenStream.peak();
+			if (peaked.type != TokenType.Operator) break;
 
-		const operator = this.tokenStream.consumeType(TokenType.Operator).value;
-		const opPrec = operandPrecedence[operator];
-		if (!opPrec) throw new Error(`Unknown operator: ${operator}`);
+			const opPrec = operandPrecedence[peaked.value];
+			if (!opPrec) throw new Error(`Unknown operator: ${peaked.value}`);
+			if (opPrec > maxPrecedence) break;
 
-		// console.log({ opPrec, prec });
-		if (opPrec > prec) {
-			const rightHand = this.parseBinaryExpression(this.parseStatement(), opPrec);
-			const binaryExpr: BinaryExpression = {
+			const operator = this.tokenStream.consumeType(TokenType.Operator).value;
+			let rightHand = this.parseStatement(false);
+			rightHand = this.parseBinaryExpression(rightHand, opPrec - 1);
+
+			leftHand = {
 				type: ASTType.BinaryExpression,
 				left: leftHand,
 				operator: operator,
 				right: rightHand
 			};
-
-			return this.parseBinaryExpression(binaryExpr, prec);
 		}
 
 		return leftHand;
@@ -566,7 +564,7 @@ class Parser {
 			// Array access, just update the current reference's offsetExpression
 			else if (peaked.type == TokenType.Symbol && peaked.value == "[") {
 				this.tokenStream.consumeTV(TokenType.Symbol, "[");
-				const offsetExpr = this.parseStatement();
+				const offsetExpr = this.parseStatement(true);
 				this.tokenStream.consumeTV(TokenType.Symbol, "]");
 
 				currentRef.offsetExpressions = [offsetExpr];
@@ -576,7 +574,7 @@ class Parser {
 					const nextPeaked = this.tokenStream.peak();
 					if (nextPeaked.type != TokenType.Symbol || nextPeaked.value != "[") break;
 					this.tokenStream.consumeTV(TokenType.Symbol, "[");
-					const nextOffsetExpr = this.parseStatement();
+					const nextOffsetExpr = this.parseStatement(true);
 					this.tokenStream.consumeTV(TokenType.Symbol, "]");
 
 					currentRef.offsetExpressions.push(nextOffsetExpr);
@@ -605,7 +603,7 @@ class Parser {
 		return topRef;
 	}
 
-	private parseIdentifier(ident: string, dereferenceCount: number): AST {
+	private parseIdentifier(ident: string, dereferenceCount: number, allowBinaryExpression = true): AST {
 		// Struct field initializer, doesn't use a reference as 'deep-assignments' are not supported
 		if (this.tokenStream.maybeConsumeTV(TokenType.Symbol, ":")) {
 			const expression = this.parseStatement();
@@ -619,7 +617,7 @@ class Parser {
 		}
 
 		const ref = this.parseReference(ident, dereferenceCount);
-		return this.handleReference(ref);
+		return this.handleReference(ref, allowBinaryExpression);
 	}
 
 	private handleSelfAssignMathOp(ref: Reference) {
@@ -643,13 +641,13 @@ class Parser {
 		return assignment;
 	}
 
-	private handleReference(ref: Reference) {
+	private handleReference(ref: Reference, allowBinaryExpression: boolean) {
 		const peaked = this.tokenStream.peak();
-		if (peaked.type == TokenType.Symbol && peaked.value == "(") return this.handleFunctionCall(ref);
+		if (peaked.type == TokenType.Symbol && peaked.value == "(") return this.handleFunctionCall(ref, allowBinaryExpression);
 		if (peaked.type == TokenType.Symbol && peaked.value == "=") return this.handleVariableAssignment(ref);
 		const selfAssignMathOps = ["+=", "-=", "*=", "/=", "%="];
 		if (peaked.type == TokenType.Symbol && selfAssignMathOps.includes(peaked.value)) return this.handleSelfAssignMathOp(ref);
-		if (peaked.type == TokenType.Operator) return this.parseBinaryExpression(ref);
+		if (allowBinaryExpression && peaked.type == TokenType.Operator) return this.parseBinaryExpression(ref);
 		return ref;
 	}
 
@@ -665,7 +663,7 @@ class Parser {
 		return assignment;
 	}
 
-	private handleFunctionCall(ref: Reference) {
+	private handleFunctionCall(ref: Reference, allowBinaryExpression: boolean) {
 		if (!ref.child && this.rewrittenNames.has(ref.identifier)) {
 			ref.identifier = this.rewrittenNames.get(ref.identifier); // Rewrite function name if it was rewritten
 		}
@@ -692,7 +690,7 @@ class Parser {
 				arraySizeExpression: null
 			};
 
-			const remainingRef = this.parseIdentifier(tempVarName, 0);
+			const remainingRef = this.parseIdentifier(tempVarName, 0, allowBinaryExpression);
 			const block: Block = {
 				type: ASTType.Block,
 				body: [tempVarDecl, remainingRef]
@@ -700,7 +698,7 @@ class Parser {
 
 			const peakedBeyond = this.tokenStream.peak();
 			const peakedBeyondIsBinary = peakedBeyond.type == TokenType.Operator && operandPrecedence[peakedBeyond.value] > 0;
-			if (peakedBeyondIsBinary || isBinaryBeyond) {
+			if (allowBinaryExpression && (peakedBeyondIsBinary || isBinaryBeyond)) {
 				return this.parseBinaryExpression(block);
 			}
 
@@ -710,10 +708,10 @@ class Parser {
 		return call;
 	}
 
-	private parseOperator(op: string): AST {
+	private parseOperator(op: string, allowBinaryExpression: boolean): AST {
 		switch (op) {
 			case "&":
-				const ref = this.parseStatement();
+				const ref = this.parseStatement(allowBinaryExpression);
 				if (ref.type != ASTType.Reference) throw new Error(`Cannot take address of non-reference type`);
 				const addrOf: AddressOf = { type: ASTType.AddressOf, reference: ref };
 				return addrOf;
@@ -722,11 +720,11 @@ class Parser {
 				while (this.tokenStream.maybeConsumeTV(TokenType.Operator, "*")) count++;
 				const peaked = this.tokenStream.peak();
 				if (peaked.type == TokenType.Identifier) {
-					return this.parseIdentifier(this.tokenStream.consumeType(TokenType.Identifier).value, count);
+					return this.parseIdentifier(this.tokenStream.consumeType(TokenType.Identifier).value, count, allowBinaryExpression);
 				} else {
 					const deref: Dereference = {
 						type: ASTType.Dereference,
-						operand: this.parseStatement(),
+						operand: this.parseStatement(allowBinaryExpression),
 						dereferenceCount: count
 					};
 
@@ -735,7 +733,7 @@ class Parser {
 			case "!":
 			case "-":
 			case "~":
-				const operand = this.parseStatement();
+				const operand = this.parseStatement(allowBinaryExpression);
 				const unaryExpr: UnaryExpression = {
 					type: ASTType.UnaryExpression,
 					operator: op,
@@ -755,7 +753,7 @@ class Parser {
 			if (peaked.type == TokenType.Symbol && peaked.value == "}") break;
 
 			if (values.length > 0) this.tokenStream.consumeTV(TokenType.Symbol, ",");
-			values.push(this.parseStatement());
+			values.push(this.parseStatement(true));
 		}
 
 		this.tokenStream.consumeTV(TokenType.Symbol, "}");
@@ -768,9 +766,9 @@ class Parser {
 		return init;
 	}
 
-	private maybeStartBinaryExpressionOrBlockedReference(ast: AST): AST {
+	private maybeStartBinaryExpressionOrBlockedReference(ast: AST, allowBinaryExpression: boolean): AST {
 		const peaked = this.tokenStream.peak();
-		if (peaked.type == TokenType.Operator) return this.parseBinaryExpression(ast);
+		if (allowBinaryExpression && peaked.type == TokenType.Operator) return this.parseBinaryExpression(ast);
 
 		if (peaked.type == TokenType.Symbol && (peaked.value == "." || peaked.value == "[" || peaked.value == "->")) {
 			const tempVarName = `__func_ret_temp_${id++}`;
@@ -782,19 +780,19 @@ class Parser {
 				arraySizeExpression: null
 			};
 
-			const remainingRef = this.parseIdentifier(tempVarName, 0);
+			const remainingRef = this.parseIdentifier(tempVarName, 0, allowBinaryExpression);
 			const block: Block = {
 				type: ASTType.Block,
 				body: [tempVarDecl, remainingRef]
 			};
 
-			return this.maybeStartBinaryExpressionOrBlockedReference(block);
+			return this.maybeStartBinaryExpressionOrBlockedReference(block, allowBinaryExpression);
 		}
 
 		return ast;
 	}
 
-	private parseSymbol(symbol: string) {
+	private parseSymbol(symbol: string, allowBinaryExpression: boolean) {
 		switch (symbol) {
 			case ";":
 				const semi: Semicolon = { type: ASTType.Semicolon };
@@ -802,9 +800,9 @@ class Parser {
 			case "{":
 				return this.parseInitializer();
 			case "(":
-				const inner = this.parseStatement();
+				const inner = this.parseStatement(true);
 				this.tokenStream.consumeTV(TokenType.Symbol, ")");
-				return this.maybeStartBinaryExpressionOrBlockedReference(inner);
+				return this.maybeStartBinaryExpressionOrBlockedReference(inner, allowBinaryExpression);
 			case "▸":
 				const innerType = this.parseTypeRef();
 				this.tokenStream.consumeTV(TokenType.Symbol, "◂");
@@ -821,14 +819,14 @@ class Parser {
 		}
 	}
 
-	private parseLiteral(literal: Token) {
+	private parseLiteral(literal: Token, allowBinaryExpression: boolean) {
 		const lit: Literal = {
 			type: ASTType.Literal,
 			value: literal.value,
 			literalType: literal.type == TokenType.LiteralNumber ? "number" : "string"
 		};
 
-		return this.maybeStartBinaryExpressionOrBlockedReference(lit);
+		return this.maybeStartBinaryExpressionOrBlockedReference(lit, allowBinaryExpression);
 	}
 }
 
