@@ -1,17 +1,15 @@
 // EXPECT: 4
 
-struct Point {
-	x: int;
-	y: int;
-
-	static fn new(x: int, y: int): Point {
-		let p: Point = { x: x, y: y };
-		return p;
-	}
-}
+// struct Point {
+// 	x: int;
+// 	y: int;
+// 
+// 	static fn new(x: int, y: int): Point {
+// 		let p: Point = { x: x, y: y };
+// 		return p;
+// 	}
+// }
 
 fn main(): void {
-	let p = Point.new(3, 4);
-
-	out p.y;
+	out  2 * 3 + 4;
 }

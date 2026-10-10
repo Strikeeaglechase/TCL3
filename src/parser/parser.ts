@@ -501,12 +501,14 @@ class Parser {
 
 	private parseBinaryExpression(leftHand: AST, prec = 0): AST {
 		const peaked = this.tokenStream.peak();
+		console.log(peaked);
 		if (peaked.type != TokenType.Operator) return leftHand;
 
 		const operator = this.tokenStream.consumeType(TokenType.Operator).value;
 		const opPrec = operandPrecedence[operator];
 		if (!opPrec) throw new Error(`Unknown operator: ${operator}`);
 
+		console.log({ opPrec, prec });
 		if (opPrec > prec) {
 			const rightHand = this.parseBinaryExpression(this.parseStatement(), opPrec);
 			const binaryExpr: BinaryExpression = {

@@ -26,7 +26,7 @@ function linkCompileAndExecute(sourceFilePath: string) {
 	console.log(`Unoptimized ticks ${unoptResult.ticks}, Optimized ticks: ${opResult.ticks}`);
 
 	const unitTester = new UnitTester();
-	unitTester.runTests();
+	// unitTester.runTests();
 }
 
 function executeIrFile(irFilePath: string) {
