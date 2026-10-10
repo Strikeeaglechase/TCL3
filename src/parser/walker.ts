@@ -62,7 +62,11 @@ const walkNodeHandlers: WalkHandlersMap = {
 	[ASTType.Initializer]: (node, visitor) => node.values.forEach(visitor),
 	[ASTType.StructFieldInitializer]: (node, visitor) => visitor(node.expression),
 	[ASTType.BreakStatement]: () => {},
-	[ASTType.ContinueStatement]: () => {}
+	[ASTType.ContinueStatement]: () => {},
+	[ASTType.TypeCast]: (node, visitor) => {
+		visitor(node.castType);
+		visitor(node.expression);
+	}
 };
 
 const walk = (node: AST, visitor: (node: AST, depth: number) => void, depth = 0) => {

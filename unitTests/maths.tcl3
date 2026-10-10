@@ -48,4 +48,29 @@ fn main(): void {
 	out l;
 	out m;
 
+	// ISS-001
+	// EXPECT: 10
+	// EXPECT: 3
+	// EXPECT: 1
+	out 2 * 3 + 4;
+	out 8 - 3 - 2;
+	out 1 < 2 == 1;
+
+	// ISS-002
+	// EXPECT: 1
+	// EXPECT: 1
+	out -1 + 2;
+	out ~1 + 3;
+
+	// ISS-003
+	// EXPECT: 5
+	out 8-3;
+
+	// ISS-004
+	// EXPECT: 1
+	// EXPECT: 2
+	out 5 % 2;
+	let moduloAssignment = 8;
+	moduloAssignment %= 3;
+	out moduloAssignment;
 }

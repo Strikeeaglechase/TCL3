@@ -1,5 +1,6 @@
 // EXPECT: Hello, World!
 // EXPECT: This works!
+// EXPECT: 65
 
 fn print_string(str: int*): void {
 	let idx: int = 0;
@@ -14,4 +15,8 @@ fn main(): void {
 	let str: int* = "Hello, World!";
 	print_string(str);
 	print_string("This works!");
+
+	// ISS-008
+	let inferred = "A";
+	out inferred[0];
 }

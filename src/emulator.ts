@@ -170,6 +170,11 @@ class Emulator {
 				this.setValue(args[2], shrResult);
 				break;
 
+			case "MOD":
+				const modResult = this.getValue(args[0]) % this.getValue(args[1]);
+				this.setValue(args[2], modResult);
+				break;
+
 			case "JMP_IF_TRUE":
 				if (this.getValue(args[0]) != 0) this.registers.pc = this.getValue(args[1]);
 				break;

@@ -27,7 +27,8 @@ export enum ASTType {
 	IfStatement = "IfStatement",
 	Block = "Block",
 	BreakStatement = "BreakStatement",
-	ContinueStatement = "ContinueStatement"
+	ContinueStatement = "ContinueStatement",
+	TypeCast = "TypeCast"
 }
 
 export interface ASTNode {
@@ -195,6 +196,12 @@ export interface ContinueStatement extends ASTNode {
 	type: ASTType.ContinueStatement;
 }
 
+export interface TypeCast extends ASTNode {
+	type: ASTType.TypeCast;
+	castType: ASTTypeRef;
+	expression: AST;
+}
+
 export type ASTTypeRef = WrappedTypeRef | FunctionTypeRef | RawTypeRef;
 
 export type AST =
@@ -226,4 +233,5 @@ export type AST =
 	| Block
 	| Dereference
 	| BreakStatement
-	| ContinueStatement;
+	| ContinueStatement
+	| TypeCast;

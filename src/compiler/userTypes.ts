@@ -24,6 +24,7 @@ class Struct {
 		this.def.methods.forEach(method => {
 			const funcCtx = this.compiler.handleFunctionDeclaration(method);
 			if (!this.methods.has(method.name)) this.methods.set(method.name, []);
+
 			const fnList = this.methods.get(method.name);
 			if (fnList.length > 0) {
 				const existingReturnType = fnList[0].type.returnType;

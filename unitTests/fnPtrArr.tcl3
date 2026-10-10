@@ -8,7 +8,7 @@ fn add(a: int, b: int) a+b
 fn sub(a: int, b: int) a-b
 
 fn main(): void {
-	let ops: Fn<int, int, int>* = malloc(2);
+	let ops: Fn<int, int, int>* = ▸Fn<int, int, int>*◂malloc(2);
 	ops[0] = add;
 	ops[1] = sub;
 

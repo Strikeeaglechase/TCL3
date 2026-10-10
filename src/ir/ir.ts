@@ -40,7 +40,8 @@ const irOpCode = [
 	"JMP_IF_TRUE",
 	"JMP_IF_FALSE",
 	"SHL",
-	"SHR"
+	"SHR",
+	"MOD"
 ] as const;
 const isOpCode = (value: any): value is IROpCode => irOpCode.includes(value);
 type IROpCode = (typeof irOpCode)[number];

@@ -26,7 +26,8 @@ const simpleThreeArgInstructions = [
 	"OR",
 	"XOR",
 	"SHL",
-	"SHR"
+	"SHR",
+	"MOD"
 ] satisfies readonly IROpCode[];
 
 const INT_SIZE = 1; // Each cell in IR is effectively a 4-byte int, even if we represent it differently

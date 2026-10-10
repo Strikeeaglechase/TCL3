@@ -3,6 +3,10 @@
 #define BASE 7
 #include ./preprocessorSupport.tcl3
 
+// ISS-026
+#include ./privateSymbolFirst/util.tcl3
+#include ./privateSymbolSecond/util.tcl3
+
 fn main(): void {
 	out triple(BASE);
 }

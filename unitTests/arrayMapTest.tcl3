@@ -5,7 +5,7 @@
 // EXPECT: 6
 
 fn map(arr: int*, size: int, func: Fn<int, int>): int* {
-	let result: int* = malloc(size * sizeof(int));
+	let result: int* = ▸int*◂malloc(size * sizeof(int));
 
 	for (let i: int = 0; i < size; i += 1) {
 		result[i] = func(arr[i]);

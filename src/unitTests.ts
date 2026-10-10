@@ -12,6 +12,7 @@ interface TestFile {
 	content: string;
 	filePath: string;
 	expectedOutput: number[];
+	expectsCompileError: boolean;
 }
 
 class UnitTester {
@@ -36,12 +37,14 @@ class UnitTester {
 				.split("")
 				.map(char => char.charCodeAt(0));
 		});
+		const expectsCompileError = /\/\/ ?EXPECT_COMPILE_ERROR\b/i.test(content);
 
 		return {
 			name: path.basename(filePath, path.extname(filePath)),
 			filePath: filePath,
 			content,
-			expectedOutput
+			expectedOutput,
+			expectsCompileError
 		};
 	}
 
@@ -55,8 +58,21 @@ class UnitTester {
 
 		const start = Date.now();
 		for (const testFile of testFiles) {
-			if (testFile.expectedOutput.length == 0) {
+			if (testFile.expectedOutput.length == 0 && !testFile.expectsCompileError) {
 				console.log(chalk.gray(`Skipping ${testFile.name} (no expected output)`));
+				continue;
+			}
+
+			if (testFile.expectsCompileError) {
+				try {
+					this.compileTest(testFile);
+					console.log(chalk.red(`Test ${testFile.name} failed, expected compilation to fail`));
+					allPassed = false;
+				} catch {
+					console.log(chalk.blueBright(`Test ${testFile.name} passed`));
+					passCount++;
+					optPassCount++;
+				}
 				continue;
 			}
 
@@ -74,7 +90,10 @@ class UnitTester {
 			}
 		}
 
-		const totalTests = testFiles.reduce((sum, file) => sum + file.expectedOutput.length, 0);
+		const totalTests = testFiles.reduce((sum, file) => {
+			if (file.expectsCompileError) return sum + 1;
+			return sum + file.expectedOutput.length;
+		}, 0);
 
 		const end = Date.now();
 		let rStr = `${optPassCount}/${totalTests}`;
@@ -85,12 +104,15 @@ class UnitTester {
 		console.log(rStr + chalk.blue(` tests passed in ${end - start}ms. ${ticks} ticks unopt, ${optTicks} optimized (${reduction.toFixed(0)}% reduction).`));
 	}
 
-	private runTest(file: TestFile) {
-		// console.log(`Running test: ${file.name}`);
+	private compileTest(file: TestFile) {
 		const linker = new Linker(file.filePath);
 		const astProg = linker.compile();
 		const compiler = new Compiler(astProg);
-		const output = compiler.compile();
+		return compiler.compile();
+	}
+
+	private runTest(file: TestFile) {
+		const output = this.compileTest(file);
 		const optimizer = new IROptimizer(output);
 		const optimizedOutput = optimizer.optimize();
 		const emulator = new Emulator(output, true);

@@ -2,7 +2,7 @@ import { Stream } from "../stream.js";
 
 const keywords = ["if", "else", "elif", "while", "for", "return", "fn", "let", "struct", "enum", "out", "break", "continue", "static"];
 const operands = ["+", "-", "*", "/", "%", "|", "&", "^", "||", "&&", "!", "==", "!=", "<", ">", "<=", ">=", "~", ">>", "<<"];
-const symbols = ["(", ")", "[", "]", "{", "}", ";", ",", ".", "=", ":", "->", "+=", "-=", "*=", "/=", "%=", "|=", "&=", "^=", ">>=", "<<="];
+const symbols = ["(", ")", "[", "]", "{", "}", ";", ",", ".", "=", ":", "->", "+=", "-=", "*=", "/=", "%=", "|=", "&=", "^=", ">>=", "<<=", "▸", "◂"];
 
 const operandPrecedence: Record<string, number> = {
 	"!": 1,
@@ -33,7 +33,8 @@ const preprocessorDirectiveStart = "#";
 
 const identifierStart = /[a-zA-Z_]/;
 const identifierPart = /[a-zA-Z0-9_]/;
-const numberLiteralChars = /[0-9.-]/;
+const numberLiteralStartChars = /[0-9.-]/;
+const numberLiteralChars = /[0-9.]/;
 
 enum TokenType {
 	Symbol = "symbol",
@@ -87,7 +88,7 @@ class Tokenizer {
 		if (operands.includes(char)) return this.processOperand(char);
 		if (symbols.includes(char)) return this.processSymbol(char);
 
-		if (numberLiteralChars.test(char)) return this.processNumberLiteral(char);
+		if (numberLiteralStartChars.test(char)) return this.processNumberLiteral(char);
 		if (char == '"' || char == "'") return this.processStringLiteral(char);
 
 		if (!identifierStart.test(char)) throw new Error(`Unexpected character: ${char}`);
@@ -116,6 +117,7 @@ class Tokenizer {
 		const stringLiteral = this.charStream.readUntilAndConsume(stringLitType).join("");
 		if (stringLitType == "'") {
 			if (stringLiteral.length > 1) throw new Error(`Invalid character literal: '${stringLiteral}'`);
+			if (stringLiteral.length == 0) throw new Error(`Empty character literal: ''`);
 			this.tokens.push({ type: TokenType.LiteralNumber, value: stringLiteral.charCodeAt(0).toString() });
 			return;
 		}

@@ -24,6 +24,7 @@ import {
 	Reference,
 	ReturnStatement,
 	StructDeclaration,
+	TypeCast,
 	UnaryExpression,
 	VariableDeclaration,
 	WhileLoop,
@@ -91,6 +92,7 @@ interface FunctionCallInfo {
 	addressExtraInstructionCount: number;
 	returnType: ASTTypeRef;
 	argumentSize: number;
+	argumentCount: number;
 }
 
 const primitiveSizeMap: Record<string, number> = {
@@ -186,7 +188,7 @@ class Compiler {
 	protected compileAst(node: AST) {
 		switch (node.type) {
 			case ASTType.FunctionDeclaration:
-				this.handleFunctionDeclaration(node);
+				this.handleTopLevelFunctionDeclaration(node);
 				break;
 			case ASTType.StructDeclaration:
 				this.handleStructDeclaration(node);
@@ -247,20 +249,28 @@ class Compiler {
 			case ASTType.ContinueStatement:
 				this.handleContinueStatement(node);
 				break;
+			case ASTType.TypeCast:
+				this.handleTypeCast(node);
+				break;
 			default:
 				throw new Error(`Unsupported AST node type: ${node.type}`);
 		}
 	}
 
+	private handleTypeCast(node: TypeCast) {
+		this.compileAst(node.expression);
+	}
+
 	private handleDereference(node: Dereference) {
 		const innerType = this.inferTypeFrom(node.operand);
 		if (innerType == null) throw new Error(`Dereference of non-obvious reference failed due to inability to infer type of operand.`);
+		if (innerType.type != ASTType.WrappedTypeRef) throw new Error(`Cannot dereference non-pointer type '${typeToStr(innerType)}'.`);
 
 		this.builder.comment(`Dereference operand`);
 		this.compileAst(node.operand);
 		this.builder.pop(reg(Register.r0));
 
-		let currentType = innerType;
+		let currentType = innerType.inner;
 		// Don't do final dereference as we want to leave a pointer in order to read the value from it
 		for (let i = 0; i < node.dereferenceCount - 1; i++) {
 			if (currentType.type != ASTType.WrappedTypeRef) throw new Error(`Cannot dereference non-pointer type '${typeToStr(currentType)}'.`);
@@ -568,7 +578,7 @@ class Compiler {
 			if (!enumDecl.variants.has(node.child.identifier))
 				throw new Error(`Enum '${node.identifier}' does not have a variant named '${node.child.identifier}'.`);
 
-			return { type: intType(), isMethod: false };
+			return { type: { type: ASTType.RawTypeRef, rawType: enumDecl.name }, isMethod: false };
 		}
 
 		if (this.structs.has(node.identifier)) {
@@ -770,7 +780,8 @@ class Compiler {
 			"<<": "shl",
 			">>": "shr",
 			"&&": "logic_and",
-			"||": "logic_or"
+			"||": "logic_or",
+			"%": "mod"
 		};
 
 		if (operatorMap[node.operator]) {
@@ -833,7 +844,7 @@ class Compiler {
 	public inferTypeFrom(initializer: AST): ASTTypeRef {
 		switch (initializer.type) {
 			case ASTType.Literal:
-				return intType(); // All literals are integers for now
+				return initializer.literalType == "number" ? intType() : ptrOf(intType()); // All literals are integers for now
 			case ASTType.Reference:
 				return this.getFinalTypeOfReference(initializer, true)?.type;
 			case ASTType.FunctionCall:
@@ -852,6 +863,10 @@ class Compiler {
 				return operandType;
 			case ASTType.BinaryExpression:
 				return this.evaluateTypeOfBinaryExpression(initializer);
+			case ASTType.UnaryExpression:
+				return this.inferTypeFrom(initializer.operand);
+			case ASTType.TypeCast:
+				return initializer.castType;
 			case ASTType.Semicolon:
 				return voidType();
 			default:
@@ -909,10 +924,22 @@ class Compiler {
 				}
 			});
 		} else {
+			const expressionType = this.inferTypeFrom(varDecl.initializer);
+			if (expressionType == null) {
+				console.log(
+					chalk.yellow(`Could not infer type for variable declaration initializer: ${varDecl.name}, expression type unknown: ${varDecl.initializer.type}`)
+				);
+			} else {
+				if (!this.areTypesEqual(expressionType, type)) {
+					console.log(
+						chalk.yellow(
+							`Type mismatch in variable declaration: variable '${varDecl.name}' type '${typeToStr(type)}' != initializer expression type '${typeToStr(expressionType)}'`
+						)
+					);
+				}
+			}
 			this.compileAst(varDecl.initializer);
 			this.currentContext.writeVarFromStack(varDecl.name);
-			// this.builder.pop(reg(Register.r0));
-			// this.currentContext.setVarFromRegister(varDecl.name, Register.r0);
 		}
 	}
 
@@ -972,6 +999,16 @@ class Compiler {
 		return false;
 	}
 
+	private handleTopLevelFunctionDeclaration(node: FunctionDeclaration) {
+		const funcCtx = this.handleFunctionDeclaration(node);
+
+		if (!this.functions.has(node.name)) this.functions.set(node.name, []);
+		const existingTypeSig = this.functions.get(node.name).find(f => this.areTypesEqual(f.type, funcCtx.type, true));
+		if (existingTypeSig) throw new Error(`Function '${node.name}' with the same type signature already exists.`);
+
+		this.functions.get(node.name).push(funcCtx);
+	}
+
 	public handleFunctionDeclaration(node: FunctionDeclaration): FunctionContext {
 		if (this.currentContext != null) throw new Error(`Nested function declarations are not supported.`);
 
@@ -994,12 +1031,6 @@ class Compiler {
 		let argStackOffset = -argSize - 2;
 
 		funcCtx.setupTypeInformation();
-
-		if (!this.functions.has(node.name)) this.functions.set(node.name, []);
-		const existingTypeSig = this.functions.get(node.name).find(f => this.areTypesEqual(f.type, funcCtx.type, true));
-		if (existingTypeSig) throw new Error(`Function ${node.name} with the same type signature already exists.`);
-
-		this.functions.get(node.name).push(funcCtx);
 
 		const returnSize = this.resolveTypeSize(node.returnType);
 
@@ -1258,6 +1289,11 @@ class Compiler {
 			this.handleReferenceRead(thisArgRef, true); // Push a thisarg pointer
 		}
 		call.arguments.forEach(arg => this.compileAst(arg));
+
+		const argumentCount = thisArgRef ? call.arguments.length + 1 : call.arguments.length;
+		if (argumentCount != funcInfo.argumentCount) {
+			throw new Error(`Function ${name} expects ${funcInfo.argumentCount} arguments, but got ${argumentCount}.`);
+		}
 
 		this.builder.comment(`Push return address`);
 		this.builder.add(reg(Register.pc), imm(2 + funcInfo.addressExtraInstructionCount), reg(Register.r0));

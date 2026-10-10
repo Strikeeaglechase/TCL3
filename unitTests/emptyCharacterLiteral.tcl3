@@ -1,0 +1,6 @@
+// ISS-024
+// EXPECT_COMPILE_ERROR
+
+fn main(): void {
+	out '';
+}

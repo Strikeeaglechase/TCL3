@@ -1,0 +1,8 @@
+// ISS-009
+// EXPECT_COMPILE_ERROR
+
+fn value(input: int): int input
+
+fn main(): void {
+	out value();
+}

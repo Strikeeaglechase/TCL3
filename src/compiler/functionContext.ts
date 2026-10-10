@@ -286,7 +286,9 @@ class FunctionContext {
 		let currentType = local.type;
 		if (currentType.type != ASTType.WrappedTypeRef)
 			throw new Error(`Attempt to dereference a non-pointer variable '${name}' - type is '${typeToStr(local.type)}'`);
+
 		currentType = currentType.inner;
+		this.builder.comment(`Initial deref of local variable '${name}'`);
 		this.builder.move(memReg(Register.fp, local.stackOffset), reg(Register.r0));
 
 		// Remaining derefs
@@ -294,14 +296,15 @@ class FunctionContext {
 			if (currentType.type != ASTType.WrappedTypeRef)
 				throw new Error(`Attempt to dereference a non-pointer variable '${name}' - type is '${typeToStr(local.type)}'`);
 			currentType = currentType.inner;
+			this.builder.comment(`Deref level ${d + 1} of local variable '${name}'`);
 			this.builder.move(memReg(Register.r0), reg(Register.r0)); // Deref for each level
 		}
 
 		const innerSize = this.compiler.resolveTypeSize(currentType);
 
 		for (let i = 0; i < innerSize; i++) {
-			this.builder.add(memReg(Register.r0), imm(i), reg(Register.r1));
-			this.builder.push(memReg(Register.r0));
+			this.builder.add(reg(Register.r0), imm(i), reg(Register.r1));
+			this.builder.push(memReg(Register.r1));
 		}
 	}
 
@@ -343,7 +346,8 @@ class FunctionContext {
 			},
 			addressExtraInstructionCount: 1,
 			returnType: local.type.returnType,
-			argumentSize: argSize
+			argumentSize: argSize,
+			argumentCount: local.type.parameters.length
 		};
 	}
 
@@ -352,7 +356,8 @@ class FunctionContext {
 			getAddress: () => label(this.label),
 			addressExtraInstructionCount: 0,
 			returnType: this.type.returnType,
-			argumentSize: this.argSize
+			argumentSize: this.argSize,
+			argumentCount: this.type.parameters.length
 		};
 	}
 }

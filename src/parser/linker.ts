@@ -5,6 +5,7 @@ import { ASTType, Program } from "./ast.js";
 import { Parser } from "./parser.js";
 import { Token, Tokenizer } from "./tokenizer.js";
 
+let fileId = 0;
 class TargetFile {
 	private filePath: string;
 	private content: string;
@@ -30,7 +31,7 @@ class TargetFile {
 
 	public parse(publicSymbols: string[]) {
 		const name = path.basename(this.filePath, path.extname(this.filePath));
-		this.ast = new Parser(this.tokens, publicSymbols, name).parse();
+		this.ast = new Parser(this.tokens, publicSymbols, name + fileId++).parse();
 		if (this.debugDir) fs.writeFileSync(path.join(this.debugDir, path.basename(this.filePath) + ".ast.json"), JSON.stringify(this.ast, null, 2));
 		return this.ast;
 	}

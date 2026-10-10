@@ -24,6 +24,7 @@ import {
 	Semicolon,
 	StructDeclaration,
 	StructFieldInitializer,
+	TypeCast,
 	UnaryExpression,
 	VariableDeclaration,
 	WhileLoop,
@@ -40,6 +41,7 @@ class Parser {
 	private rewrittenNames: Map<string, string> = new Map();
 	private unitName: string;
 	private enumRawNames: Set<string> = new Set();
+	private allowedToStartNewBinaryExpression = true;
 
 	constructor(
 		tokens: Token[],
@@ -501,14 +503,14 @@ class Parser {
 
 	private parseBinaryExpression(leftHand: AST, prec = 0): AST {
 		const peaked = this.tokenStream.peak();
-		console.log(peaked);
+		// console.log(peaked);
 		if (peaked.type != TokenType.Operator) return leftHand;
 
 		const operator = this.tokenStream.consumeType(TokenType.Operator).value;
 		const opPrec = operandPrecedence[operator];
 		if (!opPrec) throw new Error(`Unknown operator: ${operator}`);
 
-		console.log({ opPrec, prec });
+		// console.log({ opPrec, prec });
 		if (opPrec > prec) {
 			const rightHand = this.parseBinaryExpression(this.parseStatement(), opPrec);
 			const binaryExpr: BinaryExpression = {
@@ -740,6 +742,7 @@ class Parser {
 					operand: operand
 				};
 				return unaryExpr;
+			// case ""
 			default:
 				throw new Error(`Unexpected operator: ${op}`);
 		}
@@ -802,6 +805,17 @@ class Parser {
 				const inner = this.parseStatement();
 				this.tokenStream.consumeTV(TokenType.Symbol, ")");
 				return this.maybeStartBinaryExpressionOrBlockedReference(inner);
+			case "▸":
+				const innerType = this.parseTypeRef();
+				this.tokenStream.consumeTV(TokenType.Symbol, "◂");
+				const innerExpr = this.parseStatement();
+				const cast: TypeCast = {
+					type: ASTType.TypeCast,
+					castType: innerType.type,
+					expression: innerExpr
+				};
+
+				return cast;
 			default:
 				throw new Error(`Unexpected symbol: ${symbol}`);
 		}

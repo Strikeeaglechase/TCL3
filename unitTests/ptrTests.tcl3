@@ -1,10 +1,19 @@
 // EXPECT: 24
 // EXPECT: 42
 // EXPECT: 42
+// EXPECT: 1
+// EXPECT: 2
+// EXPECT: 1
+// EXPECT: 2
 
 struct Point {
 	x: int**;
 	y: int;
+}
+
+struct Pair {
+	left: int;
+	right: int;
 }
 
 fn main(): void {
@@ -24,4 +33,17 @@ fn main(): void {
 
 	let t = **(addrPt->x);
 	out t;
+
+	// ISS-012
+	let pair: Pair = {left: 1, right: 2};
+	let pairPointer = &pair;
+	let pairCopy = *pairPointer;
+	out pairCopy.left;
+	out pairCopy.right;
+
+	// ISS-013
+	let pairPointerToPointer = &pairPointer;
+	let pairCopyFromComplexDereference = **(pairPointerToPointer);
+	out pairCopyFromComplexDereference.left;
+	out pairCopyFromComplexDereference.right;
 }

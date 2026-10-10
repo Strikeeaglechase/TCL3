@@ -11,12 +11,12 @@ fn memcopy(src: int*, dest: int*, size: int): void {
 fn main(): void {
 	let size: int = 10;
 
-	let arr1: int* = malloc(size);
+	let arr1: int* = ▸int*◂malloc(size);
 	for (let i: int = 0; i < size; i += 1) {
 		arr1[i] = i * 10;
 	}
 
-	let arr2: int* = malloc(size);
+	let arr2: int* = ▸int*◂malloc(size);
 	memcopy(arr1, arr2, size);
 
 	out arr2[2];
