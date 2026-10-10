@@ -710,36 +710,40 @@ class Parser {
 
 	private parseOperator(op: string, allowBinaryExpression: boolean): AST {
 		switch (op) {
-			case "&":
-				const ref = this.parseStatement(allowBinaryExpression);
+			case "&": {
+				const ref = this.parseStatement(false);
 				if (ref.type != ASTType.Reference) throw new Error(`Cannot take address of non-reference type`);
 				const addrOf: AddressOf = { type: ASTType.AddressOf, reference: ref };
-				return addrOf;
-			case "*":
+				return this.maybeStartBinaryExpressionOrBlockedReference(addrOf, allowBinaryExpression);
+			}
+			case "*": {
 				let count = 1;
 				while (this.tokenStream.maybeConsumeTV(TokenType.Operator, "*")) count++;
 				const peaked = this.tokenStream.peak();
+				let dereference: AST;
 				if (peaked.type == TokenType.Identifier) {
-					return this.parseIdentifier(this.tokenStream.consumeType(TokenType.Identifier).value, count, allowBinaryExpression);
+					dereference = this.parseIdentifier(this.tokenStream.consumeType(TokenType.Identifier).value, count, false);
 				} else {
-					const deref: Dereference = {
+					dereference = {
 						type: ASTType.Dereference,
-						operand: this.parseStatement(allowBinaryExpression),
+						operand: this.parseStatement(false),
 						dereferenceCount: count
 					};
-
-					return deref;
 				}
+
+				return this.maybeStartBinaryExpressionOrBlockedReference(dereference, allowBinaryExpression);
+			}
 			case "!":
 			case "-":
-			case "~":
-				const operand = this.parseStatement(allowBinaryExpression);
+			case "~": {
+				const operand = this.parseStatement(false);
 				const unaryExpr: UnaryExpression = {
 					type: ASTType.UnaryExpression,
 					operator: op,
 					operand: operand
 				};
-				return unaryExpr;
+				return this.maybeStartBinaryExpressionOrBlockedReference(unaryExpr, allowBinaryExpression);
+			}
 			// case ""
 			default:
 				throw new Error(`Unexpected operator: ${op}`);

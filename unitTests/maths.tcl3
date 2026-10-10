@@ -59,8 +59,10 @@ fn main(): void {
 	// ISS-002
 	// EXPECT: 1
 	// EXPECT: 1
+	// EXPECT: 1
 	out -1 + 2;
 	out ~1 + 3;
+	out !1 + 1;
 
 	// ISS-003
 	// EXPECT: 5
