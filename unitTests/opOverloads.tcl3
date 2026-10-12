@@ -2,6 +2,8 @@
 // EXPECT: 7
 // EXPECT: 4
 // EXPECT: 6
+// EXPECT: 8
+// EXPECT: 9
 
 struct Point {
 	x: int;
@@ -21,6 +23,12 @@ struct Point {
 		let result: Point = {x: this->x + other->x, y: this->y + other->y};
 		return result;
 	}
+
+	// ISS-006
+	fn "[]"(index: int): int {
+		if (index == 0) return this->x;
+		return this->y;
+	}
 }
 
 fn main(): void {
@@ -38,4 +46,8 @@ fn main(): void {
 	out f.x;
 
 	out (a + b).x + 2;
+
+	let indexed: Point = {x: 8, y: 9};
+	out indexed[0];
+	out indexed[1];
 }

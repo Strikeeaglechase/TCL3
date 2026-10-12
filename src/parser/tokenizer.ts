@@ -2,7 +2,8 @@ import { Stream } from "../stream.js";
 
 const keywords = ["if", "else", "elif", "while", "for", "return", "fn", "let", "struct", "enum", "out", "break", "continue", "static"];
 const operands = ["+", "-", "*", "/", "%", "|", "&", "^", "||", "&&", "!", "==", "!=", "<", ">", "<=", ">=", "~", ">>", "<<"];
-const symbols = ["(", ")", "[", "]", "{", "}", ";", ",", ".", "=", ":", "->", "+=", "-=", "*=", "/=", "%=", "|=", "&=", "^=", ">>=", "<<=", "▸", "◂"];
+const symbols = ["(", ")", "[", "]", "{", "}", ";", ",", ".", "=", ":", "->", "+=", "-=", "*=", "/=", "%=", "|=", "&=", "^=", "▸", "◂"];
+const selfAssignMathOps = ["+=", "-=", "*=", "/=", "%=", "&=", "|=", "^="];
 
 const operandPrecedence: Record<string, number> = {
 	"!": 1,
@@ -35,12 +36,13 @@ const identifierStart = /[a-zA-Z_]/;
 const identifierPart = /[a-zA-Z0-9_]/;
 const numberLiteralStartChars = /[0-9.-]/;
 const numberLiteralChars = /[0-9.]/;
-
 enum TokenType {
 	Symbol = "symbol",
 	Keyword = "keyword",
 	LiteralNumber = "literalNumber",
 	LiteralString = "literalString",
+	LiteralChar = "literalChar",
+	LiteralBool = "literalBool",
 	Operator = "operator",
 	Identifier = "identifier"
 }
@@ -118,11 +120,11 @@ class Tokenizer {
 		if (stringLitType == "'") {
 			if (stringLiteral.length > 1) throw new Error(`Invalid character literal: '${stringLiteral}'`);
 			if (stringLiteral.length == 0) throw new Error(`Empty character literal: ''`);
-			this.tokens.push({ type: TokenType.LiteralNumber, value: stringLiteral.charCodeAt(0).toString() });
+			this.tokens.push({ type: TokenType.LiteralChar, value: stringLiteral.charCodeAt(0).toString() });
 			return;
 		}
 
-		this.tokens.push({ type: TokenType.LiteralString, value: `"${stringLiteral}"` });
+		this.tokens.push({ type: TokenType.LiteralString, value: stringLiteral });
 	}
 
 	private processNumberLiteral(char: string) {
@@ -182,4 +184,4 @@ class Tokenizer {
 	}
 }
 
-export { Tokenizer, TokenType, Token, operandPrecedence };
+export { Tokenizer, TokenType, Token, operandPrecedence, selfAssignMathOps };

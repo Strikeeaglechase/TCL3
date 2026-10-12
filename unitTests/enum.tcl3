@@ -1,6 +1,9 @@
 // EXPECT: 0
 // EXPECT: 1
 // EXPECT: 42
+// EXPECT: 10
+// EXPECT: 11
+// EXPECT: 12
 
 enum Test {
 	a,
@@ -8,9 +11,20 @@ enum Test {
 	c: 42
 }
 
+enum ExplicitSequence {
+	a: 10,
+	b,
+	c
+}
+
 fn main(): void {
 	let e_test: Test = Test.a;
 	out e_test;
 	out Test.b;
 	out Test.c;
+
+	// ISS-020
+	out ExplicitSequence.a;
+	out ExplicitSequence.b;
+	out ExplicitSequence.c;
 }

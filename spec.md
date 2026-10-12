@@ -4,21 +4,25 @@ TCL3 is case-sensitive. Identifiers begin with a letter or underscore and may co
 
 `//` begins a single-line comment. Block comments are not supported.
 
-Semicolons are accepted as standalone no-op statements and are therefore optional after most statements. They are required between the three clauses of a `for` loop and after struct field declarations.
+Semicolons are accepted as standalone no-op statements and are therefore optional after most statements, although using them is recommended. They are required between the three clauses of a `for` loop and after struct field declarations. A future language revision may require them more broadly.
 
 ## Program structure
 
 Execution begins at a function named `main`:
 
-```c
+```Rust
 fn main(): void {
    // Program entry point
 }
 ```
 
-Declarations are compiled in source/link order. A function, struct, or enum must be declared before code that needs its type or calls it. In the current implementation, `main` must also be the last function or struct-with-methods declaration because execution otherwise falls through into code emitted after it.
+Declaration order is part of the language. Declarations are compiled in source/link order, and a function, struct, or enum must be declared before other code uses its type or calls it. A function is considered declared within its own body and may call itself, but it cannot use later declarations.
 
-Variables may only be declared inside functions. All variables in a function share one function-wide scope; blocks do not introduce a new variable scope. Local declarations are discovered before the function body is compiled, so a local name is known throughout its function, although reading it before its initializer executes reads whatever value is already in its storage.
+`main` may appear before or after other declarations. Reaching the end of `main` or executing `return;` terminates the program.
+
+Variables may only be declared inside functions. All variables in a function share one function-wide scope; blocks do not introduce a new variable scope. Local declarations are discovered before the function body is compiled, so a local name is known throughout its function.
+
+Reading a variable before its initializer executes is undefined behavior. Its storage may contain any value.
 
 ## Preprocessor and multiple files
 
@@ -28,7 +32,7 @@ Preprocessor directives begin with `#` and occupy one line.
 
 `#define` performs token substitution for later uses of an identifier in the same file:
 
-```c
+```Rust
 #define ARRAY_SIZE 5
 
 fn main(): void {
@@ -42,7 +46,7 @@ Defines do not take parameters and are not shared with included files.
 
 `#include` links another source file. The path is resolved relative to the file containing the directive:
 
-```c
+```Rust
 #include ./math.tcl3
 ```
 
@@ -52,7 +56,7 @@ Included files are processed before files that include them. Including the same 
 
 Top-level function, struct, and enum names are private to their source file unless exported. Multiple names may be comma-separated:
 
-```c
+```Rust
 #export add, Point
 ```
 
@@ -62,20 +66,20 @@ The primary file's `main` function is exported automatically. Private symbols ar
 
 `let <name>: <type> = <expression>;`
 
-```c
+```Rust
 let x: int = 5;
 ```
 
 The type may be omitted when it can be inferred from the initializer:
 
-```c
+```Rust
 let x = 5;
 let point = Point.new(3, 4);
 ```
 
 An initializer is always required. Reassignments use `=`:
 
-```c
+```Rust
 x = 10;
 ```
 
@@ -83,32 +87,34 @@ x = 10;
 
 `let <name>: <elementType>[<sizeExpression>] = {<expression1>, <expression2>, ..., <expressionN>};`
 
-```c
+```Rust
 let arr: int[5] = {1, 2, 3, 4, 5};
 ```
 
 The size is evaluated at runtime and may be any integer expression:
 
-```c
+```Rust
 let size = 4;
 let arr: int[size + 1] = {};
 ```
 
 An initializer may be empty or contain fewer values than the allocated length:
 
-```c
+```Rust
 let arr: int[5] = {};
 ```
 
+Elements omitted from an array initializer are uninitialized. Reading them before assigning a value is undefined behavior.
+
 Brackets in a declaration allocate `size * sizeof(elementType)` cells. The declared value itself has type `<elementType>*`, so arrays are passed and returned as pointers:
 
-```c
+```Rust
 fn first(values: int*): int values[0]
 ```
 
 Array indexing is zero-based, accepts an expression, and may be chained for pointer-to-pointer values:
 
-```c
+```Rust
 let value = matrix[row][column];
 ```
 
@@ -122,7 +128,7 @@ Memory is measured in cells rather than bytes. `int`, pointers, enum values, and
 
 A pointer type appends `*` to its pointee type. Pointers may be nested:
 
-```c
+```Rust
 let value: int = 5;
 let pointer: int* = &value;
 let pointerToPointer: int** = &pointer;
@@ -132,7 +138,7 @@ let pointerToPointer: int** = &pointer;
 
 `&` produces the address of a variable, array element, or struct field:
 
-```c
+```Rust
 let pointer = &value;
 let elementPointer = &values[index];
 let fieldPointer = &point.x;
@@ -144,7 +150,7 @@ The operand must be a reference; an arbitrary temporary expression does not have
 
 `*` reads or writes through a pointer. Multiple dereferences may be combined:
 
-```c
+```Rust
 let value = *pointer;
 let nestedValue = **pointerToPointer;
 *pointer = 10;
@@ -152,29 +158,33 @@ let nestedValue = **pointerToPointer;
 
 ### Allocation
 
-The built-in `malloc(size)` allocates `size` cells and returns a `void*`. Allocated memory is never freed:
+The built-in `malloc(size)` allocates `size` uninitialized cells and returns a `void*`. Reading an allocated cell before writing it is undefined behavior. Allocated memory is never freed:
 
-```c
-let values: int* = malloc(count * sizeof(int));
+```Rust
+let values: int* = ▸int*◂malloc(count * sizeof(int));
 ```
 
 ## Types
 
 ### `int`
 
-`int` is the concrete numeric type. Its final bit width is not specified. Arithmetic currently uses the host numeric representation, while bitwise operators use signed 32-bit behavior.
+`int` is the numeric type. `char` and `bool` are aliases of `int`; all three names describe the same one-cell type and may be used interchangeably.
+
+The numeric model currently follows JavaScript and may change in a future language revision. Ordinary arithmetic uses JavaScript numbers, while bitwise operations use JavaScript's signed 32-bit coercion and shift behavior. Overflow, non-finite values, and invalid arithmetic follow the corresponding JavaScript operation.
 
 Decimal integer literals are supported:
 
-```c
+```Rust
 let count: int = 42;
 ```
+
+Numeric tokens currently permit period characters but are still converted as integers. Consequently, a decimal-looking token such as `1.9` currently evaluates to `1`; this is an implementation defect rather than decimal-number support.
 
 ### `void`
 
 `void` has size zero and is used for functions that do not return a value:
 
-```c
+```Rust
 fn log(value: int): void {
    out value;
 }
@@ -184,27 +194,27 @@ fn log(value: int): void {
 
 `true` and `false` are numeric literals with values `1` and `0`. Conditions treat zero as false and any nonzero value as true.
 
-The parser recognizes `bool` as a type name, but concrete `bool` variables are not currently supported by the compiler's type-size system. Use `int` for stored Boolean values.
+`bool` is an alias of `int`, not a distinct type. Logical and comparison operations produce numeric `0` or `1`, which are equally valid as `bool`, `char`, or `int` values.
 
 ### Character literals
 
 A single-quoted literal produces the numeric character code of exactly one character:
 
-```c
+```rust
 let letter: int = 'A';
 ```
 
-Escape sequences are not currently processed. The parser recognizes `char` as a type name, but concrete `char` values are not currently supported by the compiler's type-size system. Use `int` for stored character codes.
+Escape sequences are not currently processed. `char` is an alias of `int`, not a distinct character-width type.
 
 ### String literals
 
 A double-quoted literal is stored as a null-terminated sequence of numeric character codes and evaluates to a pointer to its first cell:
 
-```c
-let message: int* = "Hello, World!";
+```rust
+let message = "Hello, World!";
 ```
 
-There is no built-in `string` type. String literals should currently be given an explicit `int*` type; inferred string-literal types are not reliable. Escape sequences are not processed.
+There is no built-in `string` type. A string literal infers `int*`. Because `char` and `int` are aliases, `char*` and `int*` are the same pointer type and either name may be used for a string pointer. Escape sequences are not processed.
 
 ### Pointer types
 
@@ -214,18 +224,28 @@ There is no built-in `string` type. String literals should currently be given an
 
 `Fn<Arg1, Arg2, ..., Return>` is a one-cell function pointer type. The last type argument is always the return type:
 
-```c
+```rust
 let operation: Fn<int, int, int> = add;
 let unary: Fn<int, int> = increment;
 ```
 
 A non-overloaded function name may be used as a function-pointer value. An overloaded function cannot be converted to a function pointer because its overload would be ambiguous.
 
+### Explicit casts
+
+`▸<type>◂<expression>` gives an expression an explicit type:
+
+```rust
+let values: int* = ▸int*◂malloc(count);
+```
+
+A cast changes the compile-time type without emitting a runtime conversion or performing safety checks. Unsafe casts, including casts between differently sized types, are allowed; ensuring that a cast is valid for the underlying value and storage is the programmer's responsibility.
+
 ### `struct`
 
 Structs must be defined as top-level named types; inline struct types are not supported:
 
-```c
+```rust
 struct Point {
    x: int;
    y: int;
@@ -236,27 +256,29 @@ A struct is a value type. Assignment, argument passing, and return copy all of i
 
 Struct values use named field initializers:
 
-```c
+```Rust
 let point: Point = {x: 10, y: 20};
 ```
 
 Initializers may be partial or empty:
 
-```c
+```Rust
 let point: Point = {x: 10};
 let emptyPoint: Point = {};
 ```
 
+Fields omitted from a struct initializer are uninitialized. Reading them before assigning a value is undefined behavior.
+
 Named initialization currently supports only fields whose value fits in one cell. Larger nested-struct fields should be assigned after declaration:
 
-```c
+```Rust
 let outer: Outer = {};
 outer.inner = inner;
 ```
 
 Access a field on a struct value with `.` and on a struct pointer with `->`:
 
-```c
+```Rust
 let x = point.x;
 let pointPointer = &point;
 let y = pointPointer->y;
@@ -264,7 +286,7 @@ let y = pointPointer->y;
 
 Member access may be chained:
 
-```c
+```Rust
 let value = outer.inner.value;
 let other = outerPointer->inner.value;
 ```
@@ -273,7 +295,7 @@ let other = outerPointer->inner.value;
 
 Functions declared inside a struct are instance methods:
 
-```c
+```Rust
 struct Point {
    x: int;
    y: int;
@@ -287,7 +309,7 @@ struct Point {
 
 Every instance method receives an implicit `this` parameter of type `<Struct>*`:
 
-```c
+```Rust
 point.scale(2);
 pointPointer->scale(2);
 ```
@@ -298,7 +320,7 @@ Methods may be overloaded by parameter types. All overloads with the same name i
 
 A method prefixed by `static` has no implicit `this` parameter and is called through the struct type:
 
-```c
+```Rust
 struct Point {
    x: int;
    y: int;
@@ -318,7 +340,7 @@ Static methods cannot currently be overloaded.
 
 An instance method whose name is a double-quoted operator overloads that binary operator:
 
-```c
+```Rust
 struct Point {
    x: int;
    y: int;
@@ -333,15 +355,32 @@ struct Point {
 }
 ```
 
-The implemented overloadable binary operators are `+`, `-`, `*`, `/`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `&&`, `||`, `&`, `|`, `^`, `<<`, and `>>`.
+The overloadable binary operators are `+`, `-`, `*`, `/`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `&&`, `||`, `&`, `|`, `^`, `<<`, and `>>`.
 
 Overloads may themselves be overloaded by the explicit operand type. For the commutative operators `+`, `*`, `==`, `!=`, `&`, `|`, and `^`, a built-in integer on the left and a struct on the right are reordered so that the struct can be the receiver.
+
+An instance method named `"[]"` overloads indexing. It receives the expression between the brackets:
+
+```Rust
+struct Values {
+   first: int;
+   second: int;
+
+   fn "["(index: int): int {
+      if (index == 0) return this->first;
+      return this->second;
+   }
+}
+
+let values: Values = {first: 10, second: 20};
+out values[1]; // 20
+```
 
 ### `enum`
 
 An enum is a one-cell integer-like value. Implicit values begin at zero:
 
-```c
+```Rust
 enum HTTPMethod {
    GET,
    POST,
@@ -351,7 +390,7 @@ enum HTTPMethod {
 
 Explicit values use `:`:
 
-```c
+```Rust
 enum HTTPStatus {
    ok: 200,
    notFound: 404
@@ -360,11 +399,19 @@ enum HTTPStatus {
 
 Variants are referenced through the enum name:
 
-```c
+```Rust
 let method: HTTPMethod = HTTPMethod.GET;
 ```
 
-When explicit and implicit variants are mixed, the current implementation's implicit counter is independent of explicit values. For example, in `{ A: 10, B }`, `B` is currently `0`.
+Each implicit member is one greater than the preceding member. This rule also applies after an explicit value:
+
+```Rust
+enum Example {
+   A: 10,
+   B,     // 11
+   C      // 12
+}
+```
 
 ## Flow control
 
@@ -372,7 +419,7 @@ Conditions accept numeric values: zero is false and any nonzero value is true.
 
 ### `if`, `elif`, and `else`
 
-```c
+```Rust
 if (value == 1) {
    out 1;
 } elif (value == 2) {
@@ -386,7 +433,7 @@ The keyword is `elif`, not `elseif`.
 
 ### `while`
 
-```c
+```Rust
 while (condition) {
    work();
 }
@@ -394,21 +441,19 @@ while (condition) {
 
 ### `for`
 
-```c
+```Rust
 for (let index: int = 0; index < count; index += 1) {
    out index;
 }
 ```
 
-The initializer runs once, the condition is tested before each iteration, and the increment runs after each normally completed body. There is no trailing semicolon after the increment clause.
-
-In the current implementation, `continue` in a `for` loop jumps directly to the condition and skips the increment clause.
+The initializer runs once, the condition is tested before each iteration, and the increment runs after each completed body. `continue` executes the increment clause before the next condition check. There is no trailing semicolon after the increment clause.
 
 ### Single-statement bodies
 
 Braces may be omitted when an `if`, `elif`, `else`, `while`, or `for` body contains one statement:
 
-```c
+```Rust
 if (ready) out 1;
 while (condition) work();
 for (let index = 0; index < count; index += 1) out index;
@@ -416,13 +461,13 @@ for (let index = 0; index < count; index += 1) out index;
 
 ### `break` and `continue`
 
-`break` exits the innermost loop. `continue` jumps to the next condition check of the innermost loop. Both are errors outside a loop.
+`break` exits the innermost loop. In a `while` loop, `continue` jumps to the next condition check. In a `for` loop, it executes the increment clause and then checks the condition. Both statements are errors outside a loop.
 
 ## Functions and calls
 
 Parameters always have explicit types:
 
-```c
+```Rust
 fn add(left: int, right: int): int {
    return left + right;
 }
@@ -434,7 +479,7 @@ A braced non-`void` function uses `return <expression>`. A `void` function may n
 
 The return type may be omitted when every return expression allows it to be inferred:
 
-```c
+```Rust
 fn add(left: int, right: int) {
    return left + right;
 }
@@ -442,7 +487,7 @@ fn add(left: int, right: int) {
 
 An unbraced function consists of one expression and returns it implicitly:
 
-```c
+```Rust
 fn add(left: int, right: int): int left + right
 ```
 
@@ -450,7 +495,7 @@ Only expression-bodied functions receive an implicit return. A braced function d
 
 Functions may return structs by value, and a returned value may immediately be used in another call, binary expression, index, or member access:
 
-```c
+```Rust
 out makePoint(3, 4).x;
 out add(1, add(2, 3));
 ```
@@ -459,7 +504,7 @@ out add(1, add(2, 3));
 
 Top-level functions may share a name when their parameter type lists differ:
 
-```c
+```Rust
 fn add(left: int, right: int): int left + right
 fn add(left: Point, right: Point): Point {
    // ...
@@ -472,7 +517,7 @@ The argument types select the overload. Return type alone cannot distinguish ove
 
 Function pointers may be stored in variables, struct fields, pointers, and arrays, and are called with the ordinary call syntax:
 
-```c
+```Rust
 fn increment(value: int): int value + 1
 
 let operation: Fn<int, int> = increment;
@@ -483,9 +528,9 @@ out operation(4);
 
 ### `out`
 
-`out <expression>` evaluates an expression, removes one cell from its result, and sends that numeric value to the runtime output stream:
+`out <expression>` accepts only a single-cell expression. It evaluates the expression, removes its cell, and sends that numeric value to the runtime output stream. Strings and aggregate struct values cannot be passed directly to `out`:
 
-```c
+```Rust
 out 42;
 out 'A';
 ```
@@ -498,7 +543,7 @@ out 'A';
 
 `sizeof(reference)` returns a compile-time size measured in cells. It takes exactly one reference and does not evaluate that reference as an ordinary expression:
 
-```c
+```Rust
 out sizeof(int);
 out sizeof(Point);
 out sizeof(point);
@@ -509,63 +554,65 @@ For an array variable, `sizeof(array)` returns the size of its pointer, not the 
 
 ## Operators
 
-| Operator | Symbol |
-| --- | --- |
-| Addition | `+` |
-| Subtraction | `-` |
-| Multiplication | `*` |
-| Division | `/` |
-| Numeric negation | `-` |
-| Bitwise OR | `\|` |
-| Bitwise AND | `&` |
-| Bitwise XOR | `^` |
-| Bitwise NOT | `~` |
-| Left shift | `<<` |
-| Signed right shift | `>>` |
-| Logical OR | `\|\|` |
-| Logical AND | `&&` |
-| Logical NOT | `!` |
-| Equality | `==` |
-| Inequality | `!=` |
-| Less than | `<` |
-| Less than or equal | `<=` |
-| Greater than | `>` |
-| Greater than or equal | `>=` |
-| Assignment | `=` |
-| Addition assignment | `+=` |
-| Subtraction assignment | `-=` |
-| Multiplication assignment | `*=` |
-| Division assignment | `/=` |
-| Address-of | `&` |
-| Dereference | `*` |
+| Operator                  | Symbol |
+| ------------------------- | ------ |
+| Addition                  | `+`    |
+| Subtraction               | `-`    |
+| Multiplication            | `*`    |
+| Division                  | `/`    |
+| Modulo                    | `%`    |
+| Numeric negation          | `-`    |
+| Bitwise OR                | `\|`   |
+| Bitwise AND               | `&`    |
+| Bitwise XOR               | `^`    |
+| Bitwise NOT               | `~`    |
+| Left shift                | `<<`   |
+| Signed right shift        | `>>`   |
+| Logical OR                | `\|\|` |
+| Logical AND               | `&&`   |
+| Logical NOT               | `!`    |
+| Equality                  | `==`   |
+| Inequality                | `!=`   |
+| Less than                 | `<`    |
+| Less than or equal        | `<=`   |
+| Greater than              | `>`    |
+| Greater than or equal     | `>=`   |
+| Assignment                | `=`    |
+| Addition assignment       | `+=`   |
+| Subtraction assignment    | `-=`   |
+| Multiplication assignment | `*=`   |
+| Division assignment       | `/=`   |
+| Modulo assignment         | `%=`   |
+| Address-of                | `&`    |
+| Dereference               | `*`    |
 
-Division currently rounds the host-language quotient down with `Math.floor`. Logical `&&` and `||` normalize their result to `0` or `1`, but both operands are currently evaluated; they do not short-circuit.
+Arithmetic follows the current JavaScript-based runtime. Division evaluates `Math.floor(left / right)`, and modulo evaluates JavaScript's `left % right`. Their behavior for negative, zero, non-finite, or `NaN` operands is the behavior of those JavaScript operations.
 
-Modulo (`%` and `%=`), postfix increment/decrement (`++` and `--`), explicit casts, and compound bitwise/shift assignments are not currently implemented.
+Logical `&&` and `||` always evaluate both operands and normalize their result to `0` or `1`; they do not short-circuit. Comparison results are likewise numeric `0` or `1`. Because `bool`, `char`, and `int` are aliases, these results have the same underlying type.
+
+Postfix increment/decrement (`++` and `--`) and compound bitwise/shift assignments are not currently implemented.
 
 Assignments are statements rather than general value-producing expressions.
 
 ## Operator precedence
 
-The intended precedence levels encoded by the parser are listed from tightest to loosest. Parentheses override the normal grouping.
+The precedence levels are listed from tightest to loosest. Parentheses override the normal grouping. Binary operators are left-associative; prefix unary operators are right-associative.
 
-The current parser has known precedence and associativity defects when multiple binary or unary operators are mixed. Until those are corrected, parentheses should be used to make every mixed expression explicit.
-
-| Precedence | Operator | Description | Intended associativity |
-| --- | --- | --- | --- |
-| 1 | `()` | Function call and grouping | Left to right |
-| 1 | `[]` | Array indexing | Left to right |
-| 1 | `.` | Struct member access | Left to right |
-| 1 | `->` | Struct-pointer member access | Left to right |
-| 2 | `! ~ -` | Logical NOT, bitwise NOT, negation | Right to left |
-| 2 | `* &` | Dereference, address-of | Right to left |
-| 3 | `* /` | Multiplication and division | Left to right |
-| 4 | `+ -` | Addition and subtraction | Left to right |
-| 5 | `<< >>` | Bitwise shifting | Left to right |
-| 6 | `< <= > >=` | Relational comparison | Left to right |
-| 7 | `== !=` | Equality comparison | Left to right |
-| 8 | `&` | Bitwise AND | Left to right |
-| 9 | `^` | Bitwise XOR | Left to right |
-| 10 | `\|` | Bitwise OR | Left to right |
-| 11 | `&&` | Logical AND | Left to right |
-| 12 | `\|\|` | Logical OR | Left to right |
+| Precedence | Operator    | Description                        | Associativity |
+| ---------- | ----------- | ---------------------------------- | ------------- |
+| 1          | `()`        | Function call and grouping         | Left to right |
+| 1          | `[]`        | Array indexing                     | Left to right |
+| 1          | `.`         | Struct member access               | Left to right |
+| 1          | `->`        | Struct-pointer member access       | Left to right |
+| 2          | `! ~ -`     | Logical NOT, bitwise NOT, negation | Right to left |
+| 2          | `* &`       | Dereference, address-of            | Right to left |
+| 3          | `* / %`     | Multiplication, division, modulo   | Left to right |
+| 4          | `+ -`       | Addition and subtraction           | Left to right |
+| 5          | `<< >>`     | Bitwise shifting                   | Left to right |
+| 6          | `< <= > >=` | Relational comparison              | Left to right |
+| 7          | `== !=`     | Equality comparison                | Left to right |
+| 8          | `&`         | Bitwise AND                        | Left to right |
+| 9          | `^`         | Bitwise XOR                        | Left to right |
+| 10         | `\|`        | Bitwise OR                         | Left to right |
+| 11         | `&&`        | Logical AND                        | Left to right |
+| 12         | `\|\|`      | Logical OR                         | Left to right |

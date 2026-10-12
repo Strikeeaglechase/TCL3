@@ -5,6 +5,8 @@
 // EXPECT: 2
 // EXPECT: 1
 // EXPECT: 2
+// EXPECT: 1
+// EXPECT: 2
 
 struct Point {
 	x: int**;
@@ -46,4 +48,9 @@ fn main(): void {
 	let pairCopyFromComplexDereference = **(pairPointerToPointer);
 	out pairCopyFromComplexDereference.left;
 	out pairCopyFromComplexDereference.right;
+
+	let pairPointerToPointerToPointer = &pairPointerToPointer;
+	let pairCopyFromThreeLevelDereference = ***(pairPointerToPointerToPointer);
+	out pairCopyFromThreeLevelDereference.left;
+	out pairCopyFromThreeLevelDereference.right;
 }

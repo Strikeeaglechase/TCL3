@@ -1,3 +1,5 @@
+import { TokenType } from "./tokenizer.js";
+
 export enum ASTType {
 	Program = "Program",
 	FunctionDeclaration = "FunctionDeclaration",
@@ -136,7 +138,7 @@ export interface Semicolon extends ASTNode {
 export interface Literal extends ASTNode {
 	type: ASTType.Literal;
 	value: string;
-	literalType: "number" | "string";
+	literalType: TokenType;
 }
 
 export interface AddressOf extends ASTNode {

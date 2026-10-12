@@ -1,4 +1,5 @@
 import chalk from "chalk";
+import fs from "fs";
 
 import { IRArgument, Register } from "../ir/ir.js";
 import { imm, INT_SIZE, IRBuilder, label, memReg, reg, str, ThreeArgInstructions } from "../ir/irBuilder.js";
@@ -30,6 +31,7 @@ import {
 	WhileLoop,
 	WrappedTypeRef
 } from "../parser/ast.js";
+import { TokenType } from "../parser/tokenizer.js";
 import { BuiltInFunction, builtInFunctions } from "./builtInFunctions.js";
 import { FunctionContext } from "./functionContext.js";
 import { Enum, Struct } from "./userTypes.js";
@@ -97,11 +99,21 @@ interface FunctionCallInfo {
 
 const primitiveSizeMap: Record<string, number> = {
 	void: 0,
-	int: INT_SIZE
+	int: INT_SIZE,
+	char: INT_SIZE,
+	bool: INT_SIZE
 };
 
 const intType = (): RawTypeRef => {
 	return { type: ASTType.RawTypeRef, rawType: "int" };
+};
+
+const charType = (): RawTypeRef => {
+	return { type: ASTType.RawTypeRef, rawType: "char" };
+};
+
+const boolType = (): RawTypeRef => {
+	return { type: ASTType.RawTypeRef, rawType: "bool" };
 };
 
 const voidType = (): RawTypeRef => {
@@ -136,6 +148,7 @@ class BinaryExpressionTypeEvalResult {
 	}
 }
 
+const programExitLabel = `__program_exit`;
 class Compiler {
 	private currentContext: FunctionContext = null;
 
@@ -164,6 +177,7 @@ class Compiler {
 			this.compileAst(node);
 		});
 
+		this.builder.addLabel(programExitLabel);
 		this.builder.halt();
 		return this.builder.getCode();
 	}
@@ -270,13 +284,15 @@ class Compiler {
 		this.compileAst(node.operand);
 		this.builder.pop(reg(Register.r0));
 
-		let currentType = innerType.inner;
+		// fs.writeFileSync("../debug/temp.json", JSON.stringify(innerType));
+		let currentType: ASTTypeRef = innerType;
 		// Don't do final dereference as we want to leave a pointer in order to read the value from it
 		for (let i = 0; i < node.dereferenceCount - 1; i++) {
 			if (currentType.type != ASTType.WrappedTypeRef) throw new Error(`Cannot dereference non-pointer type '${typeToStr(currentType)}'.`);
 
 			this.builder.comment(`Dereference level ${i + 1}`);
 			this.builder.move(memReg(Register.r0), reg(Register.r0)); // Dereference r0 to get the pointer to the next level
+			currentType = currentType.inner;
 		}
 
 		if (currentType.type != ASTType.WrappedTypeRef) throw new Error(`Cannot dereference non-pointer type '${typeToStr(currentType)}'.`);
@@ -302,8 +318,9 @@ class Compiler {
 		this.compileAst(node.initializer);
 		const loopTopLabel = `for_loop_top_${id++}`;
 		const loopEndLabel = `for_loop_end_${id++}`;
+		const loopIncrementLabel = `for_loop_increment_${id++}`;
 
-		this.continueLabelStack.push(loopTopLabel);
+		this.continueLabelStack.push(loopIncrementLabel);
 		this.breakLabelStack.push(loopEndLabel);
 
 		this.builder.addLabel(loopTopLabel);
@@ -312,6 +329,8 @@ class Compiler {
 		this.builder.jumpIfFalse(reg(Register.r0), label(loopEndLabel));
 
 		node.body.forEach(bodyNode => this.compileAst(bodyNode));
+
+		this.builder.addLabel(loopIncrementLabel);
 		this.compileAst(node.increment);
 		this.builder.jump(label(loopTopLabel));
 		this.builder.addLabel(loopEndLabel);
@@ -430,6 +449,42 @@ class Compiler {
 		this.builder.sub(reg(Register.sp), imm(finalTypeSize), reg(Register.sp));
 	}
 
+	private handleOverloadedArrayIndexing(topLevelReference: Reference, tailReference: Reference, type: RawTypeRef, offsetExpression: AST) {
+		// Maybe it's a struct with an overload for the [] operator
+		const structDecl = this.structs.get(type.rawType);
+		if (!structDecl) throw new Error(`Type information for '${type.rawType}' is not available, cannot access field '${tailReference.identifier}'.`);
+
+		const argType = this.inferTypeFrom(offsetExpression);
+		const operatorMethod = structDecl.methods.get("[]");
+		const matchingMethod = this.findFunctionMatchingArgumentList(operatorMethod, [ptrOf(type), argType]);
+		if (!matchingMethod)
+			throw new Error(`Struct type '${type.rawType}' does not have an operator overload for '[]' that matches the argument type '${typeToStr(argType)}'.`);
+
+		// Remove the final offset ref from the reference chain
+		// Reference should now be a reference to the struct itself, allowing us to use it as a this pointer
+		tailReference.offsetExpressions.pop();
+
+		const fnCall: FunctionCall = {
+			type: ASTType.FunctionCall,
+			reference: topLevelReference,
+			arguments: [offsetExpression]
+		};
+
+		const returnType = matchingMethod.type.returnType;
+		const returnSize = this.callMethod(structDecl, matchingMethod.name, fnCall);
+
+		// The behavior of resolveComplexReferenceAddressInR0 means that we want R0 to point to our data
+		// And the caller of resolveComplex will then push the data onto the stack, however, functions already push the data
+		// So we're going to move the stack pointer back, then set r0 to the start of the return values
+
+		this.builder.comment(`Move sp for [] overload return value`);
+		this.builder.sub(reg(Register.sp), imm(returnSize), reg(Register.sp));
+		this.builder.move(reg(Register.sp), reg(Register.r0));
+
+		return returnType;
+	}
+
+	// TODO: Break this up into smaller functions
 	private resolveComplexReferenceAddressInR0(node: Reference) {
 		let curRef = node;
 		let currentType = this.currentContext.getTypeOfLocal(curRef.identifier);
@@ -460,8 +515,18 @@ class Compiler {
 			if (curRef.offsetExpressions != null) {
 				// Evaluate the offset expression and add it to r0
 				// Eval may modify r0
-				curRef.offsetExpressions.forEach(offsetExpr => {
-					if (currentType.type != ASTType.WrappedTypeRef)
+				curRef.offsetExpressions.forEach((offsetExpr, idx) => {
+					if (currentType.type == ASTType.RawTypeRef) {
+						// Ensure reference is valid. Cannot have any child references, must be final offset expression
+						if (curRef.child || idx !== curRef.offsetExpressions.length - 1) {
+							throw new Error(
+								`Due to compiler limitations, operator overloads for '[]' cannot be used in the middle of a reference chain. Must be the final offset expression.`
+							);
+						}
+
+						currentType = this.handleOverloadedArrayIndexing(node, curRef, currentType, offsetExpr);
+						return;
+					} else if (currentType.type != ASTType.WrappedTypeRef)
 						throw new Error(`Attempt to index a non-pointer type '${typeToStr(currentType)}' for reference '${curRef.identifier}'.`);
 
 					// Perform dereference
@@ -690,11 +755,13 @@ class Compiler {
 
 	private handleLiteral(node: Literal) {
 		switch (node.literalType) {
-			case "number":
+			case TokenType.LiteralNumber:
+			case TokenType.LiteralBool:
+			case TokenType.LiteralChar:
 				this.builder.push(imm(parseInt(node.value)));
 				break;
-			case "string":
-				const innerStrValue = node.value.slice(1, -1); // Remove quotes
+			case TokenType.LiteralString:
+				const innerStrValue = node.value; // Remove quotes
 				this.builder.push(str(innerStrValue + "\0"));
 				break;
 			default:
@@ -844,7 +911,18 @@ class Compiler {
 	public inferTypeFrom(initializer: AST): ASTTypeRef {
 		switch (initializer.type) {
 			case ASTType.Literal:
-				return initializer.literalType == "number" ? intType() : ptrOf(intType()); // All literals are integers for now
+				switch (initializer.literalType) {
+					case TokenType.LiteralNumber:
+						return intType();
+					case TokenType.LiteralBool:
+						return boolType();
+					case TokenType.LiteralChar:
+						return charType();
+					case TokenType.LiteralString:
+						return ptrOf(charType());
+					default:
+						throw new Error(`Unsupported literal type for type inference: ${initializer.literalType}`);
+				}
 			case ASTType.Reference:
 				return this.getFinalTypeOfReference(initializer, true)?.type;
 			case ASTType.FunctionCall:
@@ -1048,13 +1126,15 @@ class Compiler {
 		this.builder.commentln(`Function body fn "${node.name}":`);
 		node.body.forEach(statement => this.compileAst(statement));
 
+		this.builder.addLabel(funcCtx.outLabel);
+
 		// Skip function epilogue
 		if (node.name == "main") {
+			this.builder.jump(label(programExitLabel));
 			this.currentContext = null;
 			return funcCtx;
 		}
 
-		this.builder.addLabel(funcCtx.outLabel);
 		this.builder.commentln(`Function epilogue fn "${node.name}":`);
 		// Copy return value to wherever the caller expects it
 		if (returnSize > 1) {
@@ -1119,6 +1199,12 @@ class Compiler {
 				return callInfo.returnType;
 			}
 
+			// Recursive call?
+			if (this.currentContext.name == call.reference.identifier) {
+				const callInfo = this.currentContext.getCallInfo();
+				return callInfo.returnType;
+			}
+
 			throw new Error(`Attempt to call ${call.reference.identifier} which is not defined`);
 		}
 
@@ -1149,6 +1235,12 @@ class Compiler {
 			if (this.currentContext.isDefined(node.reference.identifier)) {
 				const callInfo = this.currentContext.createCallInfoForLocal(node.reference.identifier);
 				this.callFunction(node.reference.identifier, callInfo, node);
+				return;
+			}
+
+			// Recursive call?
+			if (this.currentContext.name == node.reference.identifier) {
+				this.callFunction(node.reference.identifier, this.currentContext.getCallInfo(), node);
 				return;
 			}
 
@@ -1266,7 +1358,7 @@ class Compiler {
 		argumentList.unshift(ptrOf({ type: ASTType.RawTypeRef, rawType: struct.name })); // Add this pointer as first argument
 		const matchingMethod = this.findFunctionMatchingArgumentList(methods, argumentList);
 
-		this.callFunction(debugName, matchingMethod.getCallInfo(), call, call.reference);
+		return this.callFunction(debugName, matchingMethod.getCallInfo(), call, call.reference);
 	}
 
 	// Name is only for debug info/symbols
@@ -1310,6 +1402,8 @@ class Compiler {
 		// Push that value onto stack so whatever expression is expecting it may use it
 		if (returnSize == 1) this.builder.push(reg(Register.funcRet));
 		else if (returnSize > 1) this.currentContext.readVarToStack(returnVarName);
+
+		return returnSize;
 	}
 
 	private callBuiltInFunction(builtin: BuiltInFunction, call: FunctionCall) {

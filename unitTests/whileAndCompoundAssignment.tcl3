@@ -4,6 +4,9 @@
 // EXPECT: 5
 // EXPECT: 6
 // EXPECT: 7
+// EXPECT: 15
+// EXPECT: 12
+// EXPECT: 6
 
 fn main(): void {
 	let value: int = 20;
@@ -25,4 +28,12 @@ fn main(): void {
 	out total;
 
 	if (true) out 7;
+
+	let bitwise: int = 10;
+	bitwise |= 5;
+	out bitwise;
+	bitwise &= 12;
+	out bitwise;
+	bitwise ^= 10;
+	out bitwise;
 }

@@ -1,6 +1,7 @@
 // EXPECT: 11
 // EXPECT: 11
 // EXPECT: 6
+// EXPECT: 3
 
 fn main(): void {
 
@@ -13,4 +14,13 @@ fn main(): void {
 	}
 
 	out i;
+
+	// ISS-018: continue in a for loop still executes the increment.
+	let visits = 0;
+	let increments = 0;
+	for (let unused = 0; visits < 3; increments += 1) {
+		visits += 1;
+		continue;
+	}
+	out increments;
 }

@@ -2,7 +2,7 @@
 // EXPECT: This works!
 // EXPECT: 65
 
-fn print_string(str: int*): void {
+fn print_string(str: char*): void {
 	let idx: int = 0;
 	while (str[idx] != 0) {
 		out str[idx];
@@ -12,7 +12,7 @@ fn print_string(str: int*): void {
 }
 
 fn main(): void {
-	let str: int* = "Hello, World!";
+	let str: char* = "Hello, World!";
 	print_string(str);
 	print_string("This works!");
 

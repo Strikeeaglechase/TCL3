@@ -7,6 +7,17 @@
 // EXPECT: 0
 // EXPECT: 0
 // EXPECT: 1
+// EXPECT: 65
+// EXPECT: 7
+// EXPECT: 65
+// EXPECT: 8
+// EXPECT: 65
+// EXPECT: 7
+// EXPECT: 65
+
+fn readInt(value: int): int value
+
+fn readIntPointer(value: int*): int {return *value;}
 
 fn main(): void {
 	out true;
@@ -20,4 +31,21 @@ fn main(): void {
 
 	out true && false;
 	out false || 7;
+
+	// ISS-007: char, bool, and int are aliases.
+	let letter: char = 'A';
+	let truthy: int = 7;
+	out letter;
+	out truthy;
+
+	let letterPointer: char* = &letter;
+	let integerPointer: char* = letterPointer;
+	out *integerPointer;
+
+	let integerValue: int = truthy + 1;
+	out integerValue;
+
+	out readInt(letter);
+	out readInt(truthy);
+	out readIntPointer(letterPointer);
 }

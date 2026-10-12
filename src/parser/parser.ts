@@ -30,9 +30,9 @@ import {
 	WhileLoop,
 	WrappedTypeRef
 } from "./ast.js";
-import { operandPrecedence, Token, TokenType } from "./tokenizer.js";
+import { operandPrecedence, selfAssignMathOps, Token, TokenType } from "./tokenizer.js";
 
-const allowedOperatorOverloads = ["+", "-", "*", "/", "[", "==", "!=", "<", ">", "<=", ">=", "&&", "||", "&", "|", "^", "<<", ">>"];
+const allowedOperatorOverloads = ["+", "-", "*", "/", "[]", "==", "!=", "<", ">", "<=", ">=", "&&", "||", "&", "|", "^", "<<", ">>"];
 const builtinTypes = ["int", "char", "bool", "void"];
 
 let id = 0;
@@ -80,6 +80,8 @@ class Parser {
 				return this.parseSymbol(token.value, allowBinaryExpression);
 			case TokenType.LiteralNumber:
 			case TokenType.LiteralString:
+			case TokenType.LiteralChar:
+			case TokenType.LiteralBool:
 				return this.parseLiteral(token, allowBinaryExpression);
 			default:
 				throw new Error(`Unexpected token type: ${token.type}`);
@@ -289,6 +291,7 @@ class Parser {
 			if (this.tokenStream.maybeConsumeTV(TokenType.Symbol, ":")) {
 				const valueToken = this.tokenStream.consumeType(TokenType.LiteralNumber);
 				variantValue = parseInt(valueToken.value);
+				currentValue = variantValue + 1; // Update currentValue for the next variant
 			} else {
 				variantValue = currentValue++;
 			}
@@ -316,7 +319,7 @@ class Parser {
 		let name = nameToken.value;
 		// Operator overloaded function
 		if (nameToken.type == TokenType.LiteralString) {
-			const operator = nameToken.value.slice(1, -1); // Remove the quotes from the operator string
+			const operator = nameToken.value;
 			if (!allowedOperatorOverloads.includes(operator)) {
 				throw new Error(`Operator ${operator} is not allowed to be overloaded`);
 			}
@@ -645,7 +648,6 @@ class Parser {
 		const peaked = this.tokenStream.peak();
 		if (peaked.type == TokenType.Symbol && peaked.value == "(") return this.handleFunctionCall(ref, allowBinaryExpression);
 		if (peaked.type == TokenType.Symbol && peaked.value == "=") return this.handleVariableAssignment(ref);
-		const selfAssignMathOps = ["+=", "-=", "*=", "/=", "%="];
 		if (peaked.type == TokenType.Symbol && selfAssignMathOps.includes(peaked.value)) return this.handleSelfAssignMathOp(ref);
 		if (allowBinaryExpression && peaked.type == TokenType.Operator) return this.parseBinaryExpression(ref);
 		return ref;
@@ -827,7 +829,7 @@ class Parser {
 		const lit: Literal = {
 			type: ASTType.Literal,
 			value: literal.value,
-			literalType: literal.type == TokenType.LiteralNumber ? "number" : "string"
+			literalType: literal.type
 		};
 
 		return this.maybeStartBinaryExpressionOrBlockedReference(lit, allowBinaryExpression);

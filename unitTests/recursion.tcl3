@@ -1,0 +1,11 @@
+// EXPECT: 120
+
+// ISS-027: a function is visible inside its own body.
+fn factorial(value: int): int {
+	if (value <= 1) return 1;
+	return value * factorial(value - 1);
+}
+
+fn main(): void {
+	out factorial(5);
+}

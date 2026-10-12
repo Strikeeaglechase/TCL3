@@ -92,8 +92,20 @@ class FunctionContext {
 	// Forward declares variables, checks return types (and infers if doesn't exist), and establishes the function type
 	public setupTypeInformation() {
 		this.forwardDeclareVariables();
+		this.establishPartialType(); // Establish partial such that scanning the body can resolve recursive calls
 		this.checkOrResolveReturnType();
-		this.establishType();
+		this.establishType(); // Establish concrete type, throws if unable
+	}
+
+	// Enables recursive functions if the user has specified a return type
+	private establishPartialType() {
+		if (this.func.returnType == null) return;
+
+		this.type = {
+			type: ASTType.FunctionTypeRef,
+			parameters: this.func.parameters.map(param => param.type),
+			returnType: this.func.returnType
+		};
 	}
 
 	private establishType() {
@@ -352,6 +364,7 @@ class FunctionContext {
 	}
 
 	public getCallInfo(): FunctionCallInfo {
+		if (!this.type) throw new Error(`Function '${this.name}' has no type information, likely due to recursive call without a strongly declared return type`);
 		return {
 			getAddress: () => label(this.label),
 			addressExtraInstructionCount: 0,
