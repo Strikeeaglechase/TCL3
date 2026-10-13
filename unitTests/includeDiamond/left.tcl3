@@ -1,0 +1,5 @@
+#include ./shared.tcl3
+
+#export leftValue
+
+fn leftValue(): int sharedValue() + 1;

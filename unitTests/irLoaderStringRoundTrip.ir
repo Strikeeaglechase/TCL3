@@ -1,0 +1,10 @@
+# ISS-041 manual regression fixture: IRBuilder's current debug-text format.
+# Loading this file should preserve the single string and permit execution.
+
+CODE:
+
+OUT STR(0)
+HALT
+
+STRINGS:
+0: A\0

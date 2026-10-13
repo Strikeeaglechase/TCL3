@@ -1,0 +1,18 @@
+// EXPECT: 1
+// EXPECT: 1
+// EXPECT: 1
+// ISS-030
+
+enum Choice {
+	a,
+	b
+}
+
+fn classify(value: bool): int 1
+fn classify(value: Choice): int 2
+
+fn main(): void {
+	out classify(Choice.a == Choice.b);
+	out classify(!Choice.a);
+	out classify(Choice.a || Choice.b);
+}

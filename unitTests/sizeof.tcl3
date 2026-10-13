@@ -1,6 +1,11 @@
 // EXPECT: 4
 // EXPECT: 4
 // EXPECT: 1
+// EXPECT: 1
+// EXPECT: 1
+// EXPECT: 1
+// EXPECT: 1
+// EXPECT: 0
 
 struct SubStruct {
 	a: int;
@@ -14,9 +19,26 @@ struct Test {
 	sub: SubStruct;
 }
 
+fn identity(value: int): int value
+
+fn bump(counter: int*): int {
+	*counter += 1;
+	return 0;
+}
+
 fn main(): void {
 	let a: Test = {x: 1, y: 2, z: 3};
 	out sizeof(a);
 	out sizeof(Test);
 	out sizeof(a.sub);
+	out sizeof(char);
+	out sizeof(bool);
+
+	let operation: Fn<int, int> = identity;
+	out sizeof(operation);
+
+	let values: int[1] = {9};
+	let counter = 0;
+	out sizeof(values[bump(&counter)]);
+	out counter;
 }

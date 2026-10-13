@@ -2,10 +2,13 @@
 // EXPECT: 7
 // EXPECT: 6
 // EXPECT: 10
+// EXPECT: 9
 
 struct Pair {
 	left: int;
 	right: int;
+
+	fn sum(): int this->left + this->right
 }
 
 fn makePair(left: int, right: int): Pair {
@@ -22,4 +25,5 @@ fn main(): void {
 	out makePair(2, 3).left + 5;
 	out add(1, add(2, 3));
 	out inferred(9);
+	out makePair(4, 5).sum();
 }

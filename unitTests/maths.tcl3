@@ -15,15 +15,15 @@ fn main(): void {
 
 	// EXPECT: 0
 	// EXPECT: 1
-	let e: int = 1 == 2;
-	let z: int = 1 != 2;
+	let e: bool = ▸bool◂(1 == 2);
+	let z: bool = ▸bool◂(1 != 2);
 	out e;
 	out z;
 
 	// EXPECT: 1
 	// EXPECT: -6
 	// EXPECT: 6
-	let f: int = !(1 == 2);
+	let f: bool = ▸bool◂(!(1 == 2));
 	let g: int = ~5;
 	let h: int = -g;
 	out f;
@@ -75,4 +75,14 @@ fn main(): void {
 	let moduloAssignment = 8;
 	moduloAssignment %= 3;
 	out moduloAssignment;
+
+	// JavaScript-backed signed arithmetic edge cases.
+	// EXPECT: -2
+	// EXPECT: -1
+	// EXPECT: -1
+	// EXPECT: -2147483648
+	out (0 - 3) / 2;
+	out (0 - 3) % 2;
+	out (0 - 1) >> 1;
+	out 1 << 31;
 }

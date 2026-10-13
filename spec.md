@@ -168,7 +168,7 @@ let values: int* = ▸int*◂malloc(count * sizeof(int));
 
 ### `int`
 
-`int` is the numeric type. `char` and `bool` are aliases of `int`; all three names describe the same one-cell type and may be used interchangeably.
+`int` is the numeric type. `int`, `char`, and `bool` all occupy one cell and use the same runtime representation, but they are distinct compile-time types. Converting between them requires an explicit cast. An implicit conversion is diagnosed as a warning or error depending on context.
 
 The numeric model currently follows JavaScript and may change in a future language revision. Ordinary arithmetic uses JavaScript numbers, while bitwise operations use JavaScript's signed 32-bit coercion and shift behavior. Overflow, non-finite values, and invalid arithmetic follow the corresponding JavaScript operation.
 
@@ -192,19 +192,19 @@ fn log(value: int): void {
 
 ### Boolean values
 
-`true` and `false` are numeric literals with values `1` and `0`. Conditions treat zero as false and any nonzero value as true.
+`true` and `false` are `bool` literals represented by the values `1` and `0`. Conditions treat zero as false and any nonzero value as true.
 
-`bool` is an alias of `int`, not a distinct type. Logical and comparison operations produce numeric `0` or `1`, which are equally valid as `bool`, `char`, or `int` values.
+Logical and comparison operations produce `bool` values represented by `0` or `1`. Using one as an `int` or `char` requires an explicit cast.
 
 ### Character literals
 
 A single-quoted literal produces the numeric character code of exactly one character:
 
 ```rust
-let letter: int = 'A';
+let letter: char = 'A';
 ```
 
-Escape sequences are not currently processed. `char` is an alias of `int`, not a distinct character-width type.
+Escape sequences are not currently processed. `char` has the same one-cell runtime representation as `int`, but converting between the two types requires an explicit cast.
 
 ### String literals
 
@@ -214,11 +214,11 @@ A double-quoted literal is stored as a null-terminated sequence of numeric chara
 let message = "Hello, World!";
 ```
 
-There is no built-in `string` type. A string literal infers `int*`. Because `char` and `int` are aliases, `char*` and `int*` are the same pointer type and either name may be used for a string pointer. Escape sequences are not processed.
+There is no built-in `string` type. A string literal infers `char*`. `char*` and `int*` have the same one-cell runtime representation but are distinct compile-time types, so converting between them requires an explicit cast. Escape sequences are not processed.
 
 ### Pointer types
 
-`T*` is a one-cell pointer to `T`. Any number of `*` wrappers may be used.
+`T*` is a one-cell pointer to `T`. Any number of `*` wrappers may be used. Pointer types retain their pointee's compile-time identity; for example, converting between `char*` and `int*` requires an explicit cast.
 
 ### Function types
 
@@ -366,7 +366,7 @@ struct Values {
    first: int;
    second: int;
 
-   fn "["(index: int): int {
+   fn "[]"(index: int): int {
       if (index == 0) return this->first;
       return this->second;
    }
@@ -588,7 +588,7 @@ For an array variable, `sizeof(array)` returns the size of its pointer, not the 
 
 Arithmetic follows the current JavaScript-based runtime. Division evaluates `Math.floor(left / right)`, and modulo evaluates JavaScript's `left % right`. Their behavior for negative, zero, non-finite, or `NaN` operands is the behavior of those JavaScript operations.
 
-Logical `&&` and `||` always evaluate both operands and normalize their result to `0` or `1`; they do not short-circuit. Comparison results are likewise numeric `0` or `1`. Because `bool`, `char`, and `int` are aliases, these results have the same underlying type.
+Logical `&&` and `||` always evaluate both operands and produce a `bool` represented by `0` or `1`; they do not short-circuit. Comparison results are likewise `bool` values represented by `0` or `1`.
 
 Postfix increment/decrement (`++` and `--`) and compound bitwise/shift assignments are not currently implemented.
 

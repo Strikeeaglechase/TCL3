@@ -1,0 +1,3 @@
+#export sharedValue
+
+fn sharedValue(): int 10;

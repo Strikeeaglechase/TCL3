@@ -1,0 +1,8 @@
+// EXPECT_COMPILE_ERROR
+// ISS-034
+
+fn log(): void {}
+
+fn main(): void {
+	out log();
+}

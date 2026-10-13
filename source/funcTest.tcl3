@@ -1,41 +1,57 @@
-// EXPECT: 25
-// EXPECT: 15
-// EXPECT: 45
-// EXPECT: 5
-// EXPECT: 6
+// EXPECT: 4
 // EXPECT: 7
-// EXPECT: 15
-// EXPECT: 12
+// EXPECT: 4
 // EXPECT: 6
-// EXPECT: 24
-// EXPECT: 12
+// EXPECT: 8
+// EXPECT: 9
+// EXPECT: 9
+
+struct Point {
+	x: int;
+	y: int;
+
+	fn "+"(other: Point): Point {
+		let result: Point = {x: this->x + other.x, y: this->y + other.y};
+		return result;
+	}
+
+	fn "+"(other: int): Point {
+		let result: Point = {x: this->x + other, y: this->y + other};
+		return result;
+	}
+
+	fn "+"(other: Point*): Point {
+		let result: Point = {x: this->x + other->x, y: this->y + other->y};
+		return result;
+	}
+
+	// ISS-006
+	fn "[]"(index: int): int {
+		if (index == 0) return this->x;
+		return this->y;
+	}
+}
 
 fn main(): void {
-	let value: int = 20;
-	value += 5;
-	out value;
-	value -= 10;
-	out value;
-	value *= 3;
-	out value;
-	value /= 9;
-	out value;
+	let a: Point = {x: 1, y: 2};
+	let b: Point = {x: 3, y: 4};
 
-	let index: int = 0;
-	let total: int = 0;
-	while (index < 4) {
-		total += index;
-		index += 1;
-	}
-	out total;
+ 	let c: Point = a + b;
+	out c.x;
 
-	if (true) out 7;
+	let d = a + 5;
+	out d.y;
 
-	let bitwise: int = 10;
-	bitwise |= 5;
-	out bitwise;
-	bitwise &= 12;
-	out bitwise;
-	bitwise ^= 10;
-	out bitwise;
+	let e: Point* = &a;
+	let f: Point = b + e;
+	out f.x;
+
+	out (a + b).x + 2;
+
+	let indexed: Point = {x: 8, y: 9};
+	out indexed[0];
+	out indexed[1];
+	// ISS-031
+	let inferredIndexResult = indexed[1];
+	out inferredIndexResult;
 }

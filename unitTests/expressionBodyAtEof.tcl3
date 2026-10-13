@@ -1,0 +1,8 @@
+// EXPECT: 1
+// ISS-033
+
+fn main(): void {
+	out 1;
+}
+
+fn finalFunction(): int 3

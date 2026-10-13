@@ -2,6 +2,7 @@
 // EXPECT: 11
 // EXPECT: 6
 // EXPECT: 3
+// EXPECT: 6
 
 fn main(): void {
 
@@ -23,4 +24,15 @@ fn main(): void {
 		continue;
 	}
 	out increments;
+
+	// Nested break/continue statements target the innermost loop.
+	let nestedTotal = 0;
+	for (let outer = 0; outer < 3; outer += 1) {
+		for (let inner = 0; inner < 4; inner += 1) {
+			if (inner == 1) continue;
+			if (inner == 3) break;
+			nestedTotal += 1;
+		}
+	}
+	out nestedTotal;
 }

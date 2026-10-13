@@ -31,7 +31,7 @@ import {
 	WhileLoop,
 	WrappedTypeRef
 } from "../parser/ast.js";
-import { TokenType } from "../parser/tokenizer.js";
+import { resultTypeIsBoolOperands, TokenType } from "../parser/tokenizer.js";
 import { BuiltInFunction, builtInFunctions } from "./builtInFunctions.js";
 import { FunctionContext } from "./functionContext.js";
 import { Enum, Struct } from "./userTypes.js";
@@ -397,15 +397,19 @@ class Compiler {
 		const refType = this.inferTypeFrom(node.reference);
 
 		if (expressionType == null || refType == null) {
-			console.log(
-				chalk.yellow(
-					`Could not infer type for assignment: reference '${refType ? typeToStr(refType) : `unknown: ${node.reference.type}`}', expression '${expressionType ? typeToStr(expressionType) : `unknown: ${node.expression.type}`}'`
-				)
+			// console.log(
+			// 	chalk.yellow(
+			// 		`Could not infer type for assignment: reference '${refType ? typeToStr(refType) : `unknown: ${node.reference.type}`}', expression '${expressionType ? typeToStr(expressionType) : `unknown: ${node.expression.type}`}'`
+			// 	)
+			// );
+			throw new Error(
+				`Could not infer type for assignment: reference '${refType ? typeToStr(refType) : `unknown: ${node.reference.type}`}', expression '${expressionType ? typeToStr(expressionType) : `unknown: ${node.expression.type}`}'`
 			);
 		} else {
 			if (!this.areTypesEqual(expressionType, refType)) {
 				// throw new Error(`Type mismatch in assignment, expression type: ${typeToStr(expressionType)}, reference type: ${typeToStr(refType)}`);
-				console.log(chalk.yellow(`Type mismatch in assignment: reference '${typeToStr(refType)}' != expression '${typeToStr(expressionType)}'`));
+				// console.log(chalk.yellow(`Type mismatch in assignment: reference '${typeToStr(refType)}' != expression '${typeToStr(expressionType)}'`));
+				throw new Error(`Type mismatch in assignment: reference '${typeToStr(refType)}' != expression '${typeToStr(expressionType)}'`);
 			}
 		}
 
@@ -482,6 +486,19 @@ class Compiler {
 		this.builder.move(reg(Register.sp), reg(Register.r0));
 
 		return returnType;
+	}
+
+	private getTypeOfOverloadedArrayIndex(type: RawTypeRef, offsetExpression: AST): ASTTypeRef {
+		const structDecl = this.structs.get(type.rawType);
+		if (!structDecl) throw new Error(`Type information for '${type.rawType}' is not available, cannot access field`);
+
+		const argType = this.inferTypeFrom(offsetExpression);
+		const operatorMethod = structDecl.methods.get("[]");
+		const matchingMethod = this.findFunctionMatchingArgumentList(operatorMethod, [ptrOf(type), argType]);
+		if (!matchingMethod)
+			throw new Error(`Struct type '${type.rawType}' does not have an operator overload for '[]' that matches the argument type '${typeToStr(argType)}'.`);
+
+		return matchingMethod.type.returnType;
 	}
 
 	// TODO: Break this up into smaller functions
@@ -692,9 +709,20 @@ class Compiler {
 			top = false;
 
 			if (curRef.offsetExpressions != null) {
-				curRef.offsetExpressions.forEach(offsetExpr => {
-					if (currentType.type != ASTType.WrappedTypeRef)
+				curRef.offsetExpressions.forEach((offsetExpr, idx) => {
+					if (currentType.type == ASTType.RawTypeRef) {
+						// Ensure reference is valid. Cannot have any child references, must be final offset expression
+						if (curRef.child || idx !== curRef.offsetExpressions.length - 1) {
+							throw new Error(
+								`Due to compiler limitations, operator overloads for '[]' cannot be used in the middle of a reference chain. Must be the final offset expression.`
+							);
+						}
+
+						currentType = this.getTypeOfOverloadedArrayIndex(currentType, offsetExpr);
+						return;
+					} else if (currentType.type != ASTType.WrappedTypeRef)
 						throw new Error(`Attempt to index a non-pointer type '${typeToStr(currentType)}' for reference '${curRef.identifier}'.`);
+
 					currentType = currentType.inner;
 				});
 			}
@@ -774,12 +802,6 @@ class Compiler {
 		const rightType = this.inferTypeFrom(node.right);
 
 		if (leftType == null || rightType == null) {
-			// console.log(
-			// 	chalk.yellow(
-			// 		`Could not infer type for binary expression operands, left: ${leftType ? typeToStr(leftType) : `unknown: ${node.left.type}`}, right: ${rightType ? typeToStr(rightType) : `unknown: ${node.right.type}`}`
-			// 	)
-			// );
-
 			return BinaryExpressionTypeEvalResult.failed();
 		} else {
 			if (!this.isEffectivelyIntType(leftType) || !this.isEffectivelyIntType(rightType)) {
@@ -908,10 +930,10 @@ class Compiler {
 		this.enums.set(node.name, enumDecl);
 	}
 
-	public inferTypeFrom(initializer: AST): ASTTypeRef {
-		switch (initializer.type) {
+	public inferTypeFrom(expression: AST): ASTTypeRef {
+		switch (expression.type) {
 			case ASTType.Literal:
-				switch (initializer.literalType) {
+				switch (expression.literalType) {
 					case TokenType.LiteralNumber:
 						return intType();
 					case TokenType.LiteralBool:
@@ -921,34 +943,36 @@ class Compiler {
 					case TokenType.LiteralString:
 						return ptrOf(charType());
 					default:
-						throw new Error(`Unsupported literal type for type inference: ${initializer.literalType}`);
+						throw new Error(`Unsupported literal type for type inference: ${expression.literalType}`);
 				}
 			case ASTType.Reference:
-				return this.getFinalTypeOfReference(initializer, true)?.type;
+				return this.getFinalTypeOfReference(expression, true)?.type;
 			case ASTType.FunctionCall:
-				return this.getReturnTypeForCall(initializer);
+				return this.getReturnTypeForCall(expression);
 			// Currently we assume the final expression of a block should be a reference that pushes the value onto the stack
 			case ASTType.Block:
-				return this.inferTypeFrom(initializer.body[initializer.body.length - 1]);
+				return this.inferTypeFrom(expression.body[expression.body.length - 1]);
 			case ASTType.AddressOf:
-				return ptrOf(this.getFinalTypeOfReference(initializer.reference).type);
+				return ptrOf(this.getFinalTypeOfReference(expression.reference).type);
 			case ASTType.Dereference:
-				let operandType = this.inferTypeFrom(initializer.operand);
-				for (let i = 0; i < initializer.dereferenceCount; i++) {
+				let operandType = this.inferTypeFrom(expression.operand);
+				for (let i = 0; i < expression.dereferenceCount; i++) {
 					if (operandType.type != ASTType.WrappedTypeRef) throw new Error(`Cannot dereference non-pointer type '${typeToStr(operandType)}'.`);
 					operandType = operandType.inner;
 				}
 				return operandType;
 			case ASTType.BinaryExpression:
-				return this.evaluateTypeOfBinaryExpression(initializer);
+				return this.evaluateTypeOfBinaryExpression(expression);
 			case ASTType.UnaryExpression:
-				return this.inferTypeFrom(initializer.operand);
+				if (expression.operator == "!") return boolType();
+				return this.inferTypeFrom(expression.operand);
 			case ASTType.TypeCast:
-				return initializer.castType;
+				return expression.castType;
 			case ASTType.Semicolon:
 				return voidType();
 			default:
-				console.log(chalk.yellow(`Cannot infer type from initializer of type: ${initializer.type}`));
+				// console.log(chalk.yellow(`Cannot infer type from initializer of type: ${expression.type}`));
+				throw new Error(`Cannot infer type from initializer of type: ${expression.type}`);
 				return null; // Cannot infer type
 		}
 	}
@@ -957,6 +981,7 @@ class Compiler {
 		const overloadResult = this.getMethodForOverloadedBinaryExpression(node);
 		if (overloadResult.failedToEvaluateType) return null;
 		if (overloadResult.isOpOverload) return overloadResult.method.type.returnType;
+		if (resultTypeIsBoolOperands.includes(node.operator)) return boolType();
 		return this.inferTypeFrom(node.left);
 	}
 
@@ -992,6 +1017,7 @@ class Compiler {
 					this.currentContext.setVarFromRegister(varDecl.name, Register.r0, offset);
 				} else {
 					if (type.type != ASTType.WrappedTypeRef) throw new Error(`Array initializer provided for non-pointer type '${typeToStr(type)}'.`);
+					if (!varDecl.arraySizeExpression) throw new Error(`Array initializer provided without an array size expression for variable '${varDecl.name}'.`);
 
 					const offset = index * this.resolveTypeSize(type.inner);
 					this.builder.comment(`Array init for ${varDecl.name}[${index}] at offset ${offset}`);
@@ -1004,15 +1030,11 @@ class Compiler {
 		} else {
 			const expressionType = this.inferTypeFrom(varDecl.initializer);
 			if (expressionType == null) {
-				console.log(
-					chalk.yellow(`Could not infer type for variable declaration initializer: ${varDecl.name}, expression type unknown: ${varDecl.initializer.type}`)
-				);
+				throw new Error(`Could not infer type for variable declaration initializer: ${varDecl.name}, expression type unknown: ${varDecl.initializer.type}`);
 			} else {
 				if (!this.areTypesEqual(expressionType, type)) {
-					console.log(
-						chalk.yellow(
-							`Type mismatch in variable declaration: variable '${varDecl.name}' type '${typeToStr(type)}' != initializer expression type '${typeToStr(expressionType)}'`
-						)
+					throw new Error(
+						`Type mismatch in variable declaration: variable '${varDecl.name}' type '${typeToStr(type)}' != initializer expression type '${typeToStr(expressionType)}'`
 					);
 				}
 			}
@@ -1041,6 +1063,9 @@ class Compiler {
 
 	private handleOutStatement(node: OutStatement) {
 		this.builder.comment(`Out statement`);
+		const type = this.inferTypeFrom(node.expression);
+		if (this.resolveTypeSize(type) != 1) throw new Error(`Out statement only supports single cell types, got ${typeToStr(type)}`);
+
 		this.compileAst(node.expression);
 		this.builder.pop(reg(Register.r0));
 		this.builder.out(reg(Register.r0));
@@ -1288,7 +1313,8 @@ class Compiler {
 
 	private findFunctionMatchingArgumentList(functions: FunctionContext[], argumentTypes: ASTTypeRef[]): FunctionContext {
 		if (functions.length == 0) throw new Error(`No functions provided to match argument list.`);
-		if (functions.length == 1) return functions[0];
+		// Can do this to simplify, however we still want to type check
+		// if (functions.length == 1) return functions[0];
 
 		if (argumentTypes.some(argType => argType == null)) throw new Error(`Cannot infer all argument types for function call, cannot resolve overloads.`);
 
@@ -1332,7 +1358,20 @@ class Compiler {
 		this.builder.push(memReg(Register.r0)); // This will be at sp-argSize-1 after we evaluate args
 
 		this.builder.comment(`Evaluating arguments for call ${referenceToString(call.reference)}`);
-		call.arguments.forEach(arg => this.compileAst(arg));
+		call.arguments.forEach((arg, idx) => {
+			if (!this.areTypesEqual(this.inferTypeFrom(arg), type.parameters[idx])) {
+				throw new Error(
+					`Argument type mismatch for argument ${idx} of function call to ${referenceToString(call.reference)}. Expected ${typeToStr(type.parameters[idx])}, got ${typeToStr(this.inferTypeFrom(arg))}`
+				);
+			}
+			this.compileAst(arg);
+		});
+
+		if (call.arguments.length != type.parameters.length) {
+			throw new Error(
+				`Function call to ${referenceToString(call.reference)} expects ${type.parameters.length} arguments, but got ${call.arguments.length}.`
+			);
+		}
 
 		this.builder.comment(`Push return address`);
 		this.builder.add(reg(Register.pc), imm(2), reg(Register.r0));

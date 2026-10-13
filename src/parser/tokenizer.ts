@@ -4,6 +4,7 @@ const keywords = ["if", "else", "elif", "while", "for", "return", "fn", "let", "
 const operands = ["+", "-", "*", "/", "%", "|", "&", "^", "||", "&&", "!", "==", "!=", "<", ">", "<=", ">=", "~", ">>", "<<"];
 const symbols = ["(", ")", "[", "]", "{", "}", ";", ",", ".", "=", ":", "->", "+=", "-=", "*=", "/=", "%=", "|=", "&=", "^=", "▸", "◂"];
 const selfAssignMathOps = ["+=", "-=", "*=", "/=", "%=", "&=", "|=", "^="];
+const resultTypeIsBoolOperands = ["==", "!=", "<", ">", "<=", ">=", "&&", "||"];
 
 const operandPrecedence: Record<string, number> = {
 	"!": 1,
@@ -184,4 +185,4 @@ class Tokenizer {
 	}
 }
 
-export { Tokenizer, TokenType, Token, operandPrecedence, selfAssignMathOps };
+export { Tokenizer, TokenType, Token, operandPrecedence, selfAssignMathOps, resultTypeIsBoolOperands };

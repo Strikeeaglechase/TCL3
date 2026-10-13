@@ -1,0 +1,13 @@
+// EXPECT_COMPILE_ERROR
+// ISS-036
+
+fn value(input: int): int input
+
+struct Holder {
+	callback: Fn<int, int>;
+}
+
+fn main(): void {
+	let holder: Holder = {callback: value};
+	out holder.callback();
+}

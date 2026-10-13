@@ -66,8 +66,9 @@ class FunctionContext {
 
 		const retTypes = returns.map(ret => this.compiler.inferTypeFrom(ret.expression));
 		if (retTypes.some(t => t == null)) {
-			console.log(chalk.yellow(`Function '${this.name}' has a return statement with an expression that could not be type checked.`));
-			return;
+			// console.log(chalk.yellow(`Function '${this.name}' has a return statement with an expression that could not be type checked.`));
+			// return;
+			throw new Error(`Function '${this.name}' has a return statement with an expression that could not be type checked.`);
 		}
 
 		const firstRetType = retTypes[0];

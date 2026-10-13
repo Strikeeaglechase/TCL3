@@ -14,10 +14,19 @@
 // EXPECT: 65
 // EXPECT: 7
 // EXPECT: 65
+// EXPECT: 0
+// EXPECT: 1
+// EXPECT: 1
+// EXPECT: 2
 
 fn readInt(value: int): int value
 
 fn readIntPointer(value: int*): int {return *value;}
+
+fn recordEvaluation(counter: int*): int {
+	*counter += 1;
+	return 1;
+}
 
 fn main(): void {
 	out true;
@@ -30,22 +39,30 @@ fn main(): void {
 	out 4 >= 5;
 
 	out true && false;
-	out false || 7;
+	out false || true;
 
-	// ISS-007: char, bool, and int are aliases.
+	// int, char, and bool share a representation but require explicit casts.
 	let letter: char = 'A';
-	let truthy: int = 7;
+	let truthy: bool = ▸bool◂7;
 	out letter;
 	out truthy;
 
 	let letterPointer: char* = &letter;
-	let integerPointer: char* = letterPointer;
+	let integerPointer: int* = ▸int*◂letterPointer;
 	out *integerPointer;
 
-	let integerValue: int = truthy + 1;
+	let integerValue: int = ▸int◂truthy;
+	integerValue += 1;
 	out integerValue;
 
-	out readInt(letter);
-	out readInt(truthy);
-	out readIntPointer(letterPointer);
+	out readInt(▸int◂letter);
+	out readInt(▸int◂truthy);
+	out readIntPointer(▸int*◂letterPointer);
+
+	// Logical operators are eager rather than short-circuiting.
+	let evaluationCount = 0;
+	out false && ▸bool◂recordEvaluation(&evaluationCount);
+	out evaluationCount;
+	out true || ▸bool◂recordEvaluation(&evaluationCount);
+	out evaluationCount;
 }

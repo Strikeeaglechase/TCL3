@@ -1,0 +1,7 @@
+// EXPECT: 1
+
+fn main(): void {
+	out 1;
+}
+
+fn declaredAfterMain(): int 3;

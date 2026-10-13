@@ -1,0 +1,21 @@
+// EXPECT_COMPILE_ERROR
+// ISS-038
+
+struct Other {
+	value: int;
+}
+
+struct Point {
+	value: int;
+
+	fn "+"(other: int): Point {
+		let result: Point = {value: this->value + other};
+		return result;
+	}
+}
+
+fn main(): void {
+	let point: Point = {value: 1};
+	let other: Other = {value: 2};
+	let result = point + other;
+}

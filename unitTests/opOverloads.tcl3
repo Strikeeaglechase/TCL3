@@ -4,6 +4,7 @@
 // EXPECT: 6
 // EXPECT: 8
 // EXPECT: 9
+// EXPECT: 9
 
 struct Point {
 	x: int;
@@ -50,4 +51,7 @@ fn main(): void {
 	let indexed: Point = {x: 8, y: 9};
 	out indexed[0];
 	out indexed[1];
+	// ISS-031
+	let inferredIndexResult = indexed[1];
+	out inferredIndexResult;
 }

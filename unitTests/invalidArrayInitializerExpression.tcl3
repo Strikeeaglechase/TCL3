@@ -1,0 +1,6 @@
+// EXPECT_COMPILE_ERROR
+// ISS-035
+
+fn main(): void {
+	let values: int[2] = 5;
+}

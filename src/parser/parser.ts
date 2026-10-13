@@ -325,6 +325,8 @@ class Parser {
 			}
 
 			name = operator;
+		} else if (nameToken.type != TokenType.Identifier) {
+			throw new Error(`Unexpected token type for function name: ${nameToken.type}`);
 		} else if (!structMethod) {
 			name = this.maybeRewriteName(name);
 		}
@@ -774,6 +776,7 @@ class Parser {
 
 	private maybeStartBinaryExpressionOrBlockedReference(ast: AST, allowBinaryExpression: boolean): AST {
 		const peaked = this.tokenStream.peak();
+		if (!peaked) return ast;
 		if (allowBinaryExpression && peaked.type == TokenType.Operator) return this.parseBinaryExpression(ast);
 
 		if (peaked.type == TokenType.Symbol && (peaked.value == "." || peaked.value == "[" || peaked.value == "->")) {

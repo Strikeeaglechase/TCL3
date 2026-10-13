@@ -7,13 +7,16 @@ import { Token, Tokenizer } from "./tokenizer.js";
 
 let fileId = 0;
 class TargetFile {
-	private filePath: string;
+	public readonly filePath: string;
 	private content: string;
-	public includes: string[];
-	public exports: string[];
+	public readonly includes: string[];
+	public readonly exports: string[];
+
+	public dependencies: TargetFile[] = [];
 
 	private tokens: Token[];
-	private ast: Program;
+	public ast: Program;
+	public parsed = false;
 
 	private debugDir: string = null;
 
@@ -33,6 +36,7 @@ class TargetFile {
 		const name = path.basename(this.filePath, path.extname(this.filePath));
 		this.ast = new Parser(this.tokens, publicSymbols, name + fileId++).parse();
 		if (this.debugDir) fs.writeFileSync(path.join(this.debugDir, path.basename(this.filePath) + ".ast.json"), JSON.stringify(this.ast, null, 2));
+		this.parsed = true;
 		return this.ast;
 	}
 
@@ -65,6 +69,10 @@ class Linker {
 		});
 	}
 
+	private getNextFileForParse() {
+		return this.files.find(file => !file.parsed && file.dependencies.every(dep => dep.parsed));
+	}
+
 	public compile() {
 		const publicSymbols = this.files.flatMap(file => file.exports);
 		if (this.debugDir) {
@@ -73,7 +81,19 @@ class Linker {
 
 		// Reversed list in order to ensure leaf files are parsed first
 		// So that their symbols are available for parent files during compilation
-		const astBlocks = this.files.reverse().map(file => file.parse(publicSymbols));
+		// const astBlocks = this.files.reverse().map(file => file.parse(publicSymbols));
+
+		const astBlocks: Program[] = [];
+		let nextParseFile: TargetFile = this.getNextFileForParse();
+		while (nextParseFile) {
+			astBlocks.push(nextParseFile.parse(publicSymbols));
+			nextParseFile = this.getNextFileForParse();
+		}
+
+		if (this.files.some(file => !file.parsed)) {
+			const unparsedFiles = this.files.filter(file => !file.parsed).map(file => file.filePath);
+			throw new Error(`Some files could not be parsed due to unresolved dependencies: ${unparsedFiles.join(", ")}`);
+		}
 
 		const combinedAST: Program = {
 			type: ASTType.Program,
@@ -88,15 +108,20 @@ class Linker {
 	}
 
 	private addFile(filePath: string, isPrimary: boolean = false) {
-		if (this.files.some(f => f.isSameAs(filePath))) return;
+		const existingFile = this.files.find(f => f.isSameAs(filePath));
+		if (existingFile) return existingFile;
 
 		const file = new TargetFile(filePath, isPrimary);
 		this.files.push(file);
 
-		file.includes.forEach(includePath => {
+		const dependencies = file.includes.map(includePath => {
 			const resolvedIncludePath = path.resolve(path.dirname(filePath), includePath);
-			this.addFile(resolvedIncludePath);
+			return this.addFile(resolvedIncludePath);
 		});
+
+		file.dependencies = dependencies;
+
+		return file;
 	}
 }
 

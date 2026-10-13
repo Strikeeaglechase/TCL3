@@ -1,0 +1,6 @@
+// EXPECT_COMPILE_ERROR
+// ISS-037
+
+fn 123(): int 1
+
+fn main(): void {}

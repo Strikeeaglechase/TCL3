@@ -1,0 +1,9 @@
+// EXPECT: 23
+// ISS-032
+
+#include ./includeDiamond/left.tcl3
+#include ./includeDiamond/right.tcl3
+
+fn main(): void {
+	out leftValue() + rightValue();
+}

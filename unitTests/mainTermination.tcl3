@@ -1,0 +1,7 @@
+// EXPECT: 1
+
+fn main(): void {
+	out 1;
+	return;
+	out 2;
+}

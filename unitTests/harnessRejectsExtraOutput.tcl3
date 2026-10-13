@@ -1,0 +1,7 @@
+// EXPECT: 1
+// ISS-040: This test must fail until the harness compares complete output lengths.
+
+fn main(): void {
+	out 1;
+	out 2;
+}

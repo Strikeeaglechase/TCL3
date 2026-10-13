@@ -1,0 +1,12 @@
+// EXPECT_COMPILE_ERROR
+// ISS-034
+
+struct Pair {
+	left: int;
+	right: int;
+}
+
+fn main(): void {
+	let pair: Pair = {left: 1, right: 2};
+	out pair;
+}
