@@ -1,0 +1,44 @@
+{
+	"name": "tlc3_language_extension",
+	"version": "1.0.0",
+	"description": "",
+	"main": "dist/extension.js",
+	"type": "module",
+	"scripts": {
+		"test": "echo \"Error: no test specified\" && exit 1"
+	},
+	"keywords": [],
+	"author": "",
+	"license": "ISC",
+	"engines": {
+		"vscode": "^1.91.0"
+	},
+	"devDependencies": {
+		"@types/node": "^20.17.30",
+		"@types/vscode": "^1.106.0"
+	},
+	"dependencies": {
+		"vscode-languageclient": "^10.1.2",
+		"ws": "^8.22.0"
+	},
+	"contributes": {
+		"languages": [
+			{
+				"id": "tcl3",
+				"aliases": [
+					"TCL3",
+					"tcl3"
+				],
+				"extensions": [
+					".tcl3"
+				],
+				"configuration": "./language-configuration.json"
+			}
+		],
+		"snippets": [],
+		"configuration": {
+			"title": "TCL3",
+			"properties": {}
+		}
+	}
+}

@@ -1,0 +1,21 @@
+{
+	"name": "tlc3_lsp",
+	"version": "1.0.0",
+	"description": "",
+	"main": "dist/index.js",
+	"type": "module",
+	"scripts": {
+		"test": "echo \"Error: no test specified\" && exit 1"
+	},
+	"keywords": [],
+	"author": "",
+	"license": "ISC",
+	"devDependencies": {
+		"@types/node": "^26.6.2"
+	},
+	"dependencies": {
+		"chalk": "^6.0.1",
+		"vscode-jsonrpc": "^9.0.3",
+		"ws": "^8.22.0"
+	}
+}

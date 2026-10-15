@@ -4,6 +4,9 @@ function isPredicate<T>(value: unknown): value is (value: T) => boolean {
 
 class Stream<T> {
 	private index: number = 0;
+	public get position() {
+		return this.index;
+	}
 	constructor(private data: T[]) {}
 
 	public peak(): T {

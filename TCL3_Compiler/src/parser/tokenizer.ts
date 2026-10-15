@@ -32,7 +32,7 @@ const operandPrecedence: Record<string, number> = {
 const trueValue = "true";
 const falseValue = "false";
 const preprocessorDirectiveStart = "#";
-
+const commentStart = "//";
 const identifierStart = /[a-zA-Z_]/;
 const identifierPart = /[a-zA-Z0-9_]/;
 const numberLiteralStartChars = /[0-9.-]/;
@@ -48,9 +48,18 @@ enum TokenType {
 	Identifier = "identifier"
 }
 
+enum PreprocessDirectiveKind {
+	Define = "define",
+	Export = "export",
+	Include = "include"
+}
+
+type NonPositionToken = Omit<Token, "start" | "end">;
 interface Token {
 	type: TokenType;
 	value: string;
+	start: number;
+	end: number;
 }
 
 class Tokenizer {
@@ -65,14 +74,29 @@ class Tokenizer {
 	}
 
 	public tokenize() {
-		while (!this.charStream.eof()) this.readToken();
+		while (!this.charStream.eof()) {
+			const startPos = this.charStream.position;
+			// May be multiple due to preprocessor define
+			const tokens = this.readToken();
+			const endPos = this.charStream.position;
+
+			// No tokens omitted for comments/defines/etc
+			if (!tokens) continue;
+
+			if (Array.isArray(tokens)) {
+				const positionalTokens: Token[] = tokens.map(token => ({ ...token, start: startPos, end: endPos }));
+				this.tokens.push(...positionalTokens);
+			} else {
+				this.tokens.push({ ...tokens, start: startPos, end: endPos });
+			}
+		}
 
 		return { tokens: this.tokens, exports: this.exports, includes: this.includes };
 	}
 
-	private readToken() {
+	private readToken(): NonPositionToken | NonPositionToken[] {
 		const char = this.charStream.next();
-		if (char.trim() == "") return; // Skip whitespace
+		if (char.trim() == "") return null; // Skip whitespace
 
 		if (char == preprocessorDirectiveStart) {
 			this.readPreprocessorDirective();
@@ -81,9 +105,9 @@ class Tokenizer {
 
 		const pair = char + (this.charStream.eof() ? "" : this.charStream.peak());
 
-		if (pair == "//") {
+		if (pair == commentStart) {
 			this.charStream.readUntilAndConsume("\n"); // Skip single-line comment
-			return;
+			return null;
 		}
 
 		if (operands.includes(pair)) return this.processOperand(pair);
@@ -99,21 +123,21 @@ class Tokenizer {
 		const identifier = char + this.charStream.readUntil(c => !identifierPart.test(c)).join("");
 		if (this.defines.has(identifier)) {
 			const defineTokens = this.defines.get(identifier);
-			this.tokens.push(...defineTokens);
-			return;
+			return defineTokens;
 		}
 
 		if (keywords.includes(identifier)) {
-			this.tokens.push({ type: TokenType.Keyword, value: identifier });
-			return;
+			return { type: TokenType.Keyword, value: identifier };
 		}
 
 		if (identifier == trueValue || identifier == falseValue) {
-			this.tokens.push({ type: TokenType.LiteralNumber, value: identifier == trueValue ? "1" : "0" });
-			return;
+			return {
+				type: TokenType.LiteralBool,
+				value: identifier == trueValue ? "1" : "0"
+			};
 		}
 
-		this.tokens.push({ type: TokenType.Identifier, value: identifier });
+		return { type: TokenType.Identifier, value: identifier };
 	}
 
 	private processStringLiteral(stringLitType: "'" | '"') {
@@ -121,43 +145,42 @@ class Tokenizer {
 		if (stringLitType == "'") {
 			if (stringLiteral.length > 1) throw new Error(`Invalid character literal: '${stringLiteral}'`);
 			if (stringLiteral.length == 0) throw new Error(`Empty character literal: ''`);
-			this.tokens.push({ type: TokenType.LiteralChar, value: stringLiteral.charCodeAt(0).toString() });
-			return;
+			return { type: TokenType.LiteralChar, value: stringLiteral.charCodeAt(0).toString() };
 		}
 
-		this.tokens.push({ type: TokenType.LiteralString, value: stringLiteral });
+		return { type: TokenType.LiteralString, value: stringLiteral };
 	}
 
 	private processNumberLiteral(char: string) {
 		const numberLiteral = char + this.charStream.readUntil(c => !numberLiteralChars.test(c)).join("");
-		this.tokens.push({ type: TokenType.LiteralNumber, value: numberLiteral });
+		return { type: TokenType.LiteralNumber, value: numberLiteral };
 	}
 
 	private processOperand(charOrPair: string) {
 		if (charOrPair.length == 2) this.charStream.next(); // consume the second character of the pai
 
-		const token: Token = {
+		const token: NonPositionToken = {
 			type: TokenType.Operator,
 			value: charOrPair
 		};
-		this.tokens.push(token);
+		return token;
 	}
 
 	private processSymbol(charOrPair: string) {
 		if (charOrPair.length == 2) this.charStream.next(); // consume the second character of the pair
 
-		const token: Token = {
+		const token: NonPositionToken = {
 			type: TokenType.Symbol,
 			value: charOrPair
 		};
 
-		this.tokens.push(token);
+		return token;
 	}
 
 	private readPreprocessorDirective() {
 		const preprocessor = this.charStream.readUntilAndConsume(" ").join("");
 		switch (preprocessor) {
-			case "define":
+			case PreprocessDirectiveKind.Define:
 				const defineName = this.charStream.readUntilAndConsume(" ").join("");
 				const defineValue = this.charStream.readUntilAndConsume("\n").join("").trim();
 				if (this.defines.has(defineName)) throw new Error(`Redefinition of preprocessor define: ${defineName}`);
@@ -165,12 +188,12 @@ class Tokenizer {
 				const { tokens: defineTokens } = new Tokenizer(defineValue).tokenize();
 				this.defines.set(defineName, defineTokens);
 				break;
-			case "export":
+			case PreprocessDirectiveKind.Export:
 				const exportListLine = this.charStream.readUntilAndConsume("\n").join("").trim();
 				const exportList = exportListLine.split(",").map(s => s.trim());
 				this.exports.push(...exportList);
 				break;
-			case "include":
+			case PreprocessDirectiveKind.Include:
 				const includeFile = this.charStream.readUntilAndConsume("\n").join("").trim();
 				this.includes.push(includeFile);
 				break;
@@ -181,8 +204,10 @@ class Tokenizer {
 
 	public static generateDebug(tokens: Token[]): string {
 		const padLen = TokenType.Identifier.length;
-		return tokens.map(token => `${token.type.padEnd(padLen)} ${token.value}`).join("\n");
+		return tokens
+			.map(token => `${token.start.toString().padStart(4, " ")}:${token.end.toString().padEnd(4, " ")} ${token.type.padEnd(padLen)} ${token.value}`)
+			.join("\n");
 	}
 }
 
-export { Tokenizer, TokenType, Token, operandPrecedence, selfAssignMathOps, resultTypeIsBoolOperands };
+export { Tokenizer, TokenType, Token, operandPrecedence, selfAssignMathOps, resultTypeIsBoolOperands, preprocessorDirectiveStart };
