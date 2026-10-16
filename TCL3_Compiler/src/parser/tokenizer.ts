@@ -1,3 +1,4 @@
+import { TokenizerError } from "../errors.js";
 import { Stream } from "../stream.js";
 
 const keywords = ["if", "else", "elif", "while", "for", "return", "fn", "let", "struct", "enum", "out", "break", "continue", "static"];
@@ -37,6 +38,8 @@ const identifierStart = /[a-zA-Z_]/;
 const identifierPart = /[a-zA-Z0-9_]/;
 const numberLiteralStartChars = /[0-9.-]/;
 const numberLiteralChars = /[0-9.]/;
+const mainFnName = "main";
+
 enum TokenType {
 	Symbol = "symbol",
 	Keyword = "keyword",
@@ -45,7 +48,9 @@ enum TokenType {
 	LiteralChar = "literalChar",
 	LiteralBool = "literalBool",
 	Operator = "operator",
-	Identifier = "identifier"
+	Identifier = "identifier",
+	Comment = "comment",
+	PreprocessorDirective = "preprocessorDirective"
 }
 
 enum PreprocessDirectiveKind {
@@ -69,6 +74,8 @@ class Tokenizer {
 	private includes: string[] = [];
 	private tokens: Token[] = [];
 
+	public errors: TokenizerError[] = [];
+
 	constructor(private input: string) {
 		this.charStream = new Stream(input.split(""));
 	}
@@ -77,7 +84,13 @@ class Tokenizer {
 		while (!this.charStream.eof()) {
 			const startPos = this.charStream.position;
 			// May be multiple due to preprocessor define
-			const tokens = this.readToken();
+			let tokens: NonPositionToken | NonPositionToken[];
+
+			try {
+				tokens = this.readToken();
+			} catch (e) {
+				continue;
+			}
 			const endPos = this.charStream.position;
 
 			// No tokens omitted for comments/defines/etc
@@ -99,15 +112,14 @@ class Tokenizer {
 		if (char.trim() == "") return null; // Skip whitespace
 
 		if (char == preprocessorDirectiveStart) {
-			this.readPreprocessorDirective();
-			return;
+			return this.readPreprocessorDirective();
 		}
 
 		const pair = char + (this.charStream.eof() ? "" : this.charStream.peak());
 
 		if (pair == commentStart) {
-			this.charStream.readUntilAndConsume("\n"); // Skip single-line comment
-			return null;
+			const comment = this.charStream.readUntilAndConsume("\n"); // Skip single-line comment
+			return { type: TokenType.Comment, value: commentStart + comment.join("") };
 		}
 
 		if (operands.includes(pair)) return this.processOperand(pair);
@@ -187,16 +199,17 @@ class Tokenizer {
 
 				const { tokens: defineTokens } = new Tokenizer(defineValue).tokenize();
 				this.defines.set(defineName, defineTokens);
-				break;
+
+				return { type: TokenType.PreprocessorDirective, value: `${preprocessorDirectiveStart}${preprocessor} ${defineName} ${defineValue}` };
 			case PreprocessDirectiveKind.Export:
 				const exportListLine = this.charStream.readUntilAndConsume("\n").join("").trim();
 				const exportList = exportListLine.split(",").map(s => s.trim());
 				this.exports.push(...exportList);
-				break;
+				return { type: TokenType.PreprocessorDirective, value: `${preprocessorDirectiveStart}${preprocessor} ${exportListLine}` };
 			case PreprocessDirectiveKind.Include:
 				const includeFile = this.charStream.readUntilAndConsume("\n").join("").trim();
 				this.includes.push(includeFile);
-				break;
+				return { type: TokenType.PreprocessorDirective, value: `${preprocessorDirectiveStart}${preprocessor} ${includeFile}` };
 			default:
 				throw new Error(`Unknown preprocessor directive: ${preprocessor}`);
 		}
@@ -210,4 +223,4 @@ class Tokenizer {
 	}
 }
 
-export { Tokenizer, TokenType, Token, operandPrecedence, selfAssignMathOps, resultTypeIsBoolOperands, preprocessorDirectiveStart };
+export { Tokenizer, TokenType, Token, operandPrecedence, selfAssignMathOps, resultTypeIsBoolOperands, preprocessorDirectiveStart, mainFnName };

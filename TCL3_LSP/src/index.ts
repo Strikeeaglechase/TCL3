@@ -3,13 +3,26 @@ import { RequestMessage, ResponseMessage } from "vscode-jsonrpc";
 import { WebSocket, WebSocketServer } from "ws";
 
 import { preprocessorDirectiveStart } from "./compiler/parser/tokenizer.js";
+import { Document } from "./document.js";
 import { SemanticTokenTypes, TextDocumentSyncKind } from "./extraLspTypes.js";
-import { InitializeParams, InitializeResult, ServerCapabilities } from "./lspTypes/protocol.js";
+import {
+	DidChangeTextDocumentParams,
+	DidOpenTextDocumentParams,
+	DocumentSelector,
+	InitializeParams,
+	InitializeResult,
+	ServerCapabilities
+} from "./lspTypes/protocol.js";
 
-const oldServerCapabilities: ServerCapabilities = {
-	// colorProvider: true,
+const tcl3DocumentSelectors: DocumentSelector = [
+	{ language: "tcl3", scheme: "file" },
+	{ language: "tcl3", scheme: "untitled" }
+];
+
+const serverCapabilities: ServerCapabilities = {
+	textDocumentSync: TextDocumentSyncKind.Full,
 	semanticTokensProvider: {
-		documentSelector: [{ pattern: "**/*.tcl3" }],
+		documentSelector: tcl3DocumentSelectors,
 		legend: {
 			tokenTypes: [
 				SemanticTokenTypes.type,
@@ -26,32 +39,27 @@ const oldServerCapabilities: ServerCapabilities = {
 			],
 			tokenModifiers: []
 		},
-		full: { delta: false },
-		range: false
+		full: true
 	},
-	completionProvider: {
-		triggerCharacters: ["."]
-	},
-	diagnosticProvider: {
-		documentSelector: [{ pattern: "**/*.tcl3" }],
-		workspaceDiagnostics: false,
-		interFileDependencies: true
-	},
-	textDocumentSync: {
-		change: TextDocumentSyncKind.Full,
-		openClose: true
-	},
-	hoverProvider: true
-};
-
-const serverCapabilities: ServerCapabilities = {
-	textDocumentSync: TextDocumentSyncKind.Full,
-	completionProvider: { triggerCharacters: [".", ">", preprocessorDirectiveStart, ":", "▸", " ", "/"], resolveProvider: false }
+	completionProvider: { triggerCharacters: [".", ">", preprocessorDirectiveStart, ":", "▸", " ", "/"], resolveProvider: false },
+	hoverProvider: true,
+	definitionProvider: true,
+	typeDefinitionProvider: true,
+	referencesProvider: true,
+	renameProvider: { prepareProvider: true },
+	documentSymbolProvider: true,
+	workspaceSymbolProvider: true,
+	documentHighlightProvider: true,
+	signatureHelpProvider: { triggerCharacters: ["(", ","], retriggerCharacters: [","] },
+	codeLensProvider: { resolveProvider: false },
+	inlayHintProvider: true
 };
 
 class LSP {
 	private transportWriter: (data: string) => void;
 	private messageHandlers: Record<string, (message: RequestMessage, payload: any) => any> = {};
+
+	private files: Map<string, Document> = new Map();
 
 	private client: WebSocket;
 	private wss: WebSocketServer;
@@ -101,10 +109,10 @@ class LSP {
 			});
 		}
 
-		// this.registerMessageHandler("initialize", this.handleInit.bind(this));
+		this.registerMessageHandler("initialize", this.handleInit.bind(this));
 		// this.registerMessageHandler("textDocument/semanticTokens/full", this.handleSemanticTokensRequest.bind(this));
-		// this.registerMessageHandler("textDocument/didOpen", this.handleDocumentOpen.bind(this));
-		// this.registerMessageHandler("textDocument/didChange", this.handleDocumentChange.bind(this));
+		this.registerMessageHandler("textDocument/didOpen", this.handleDocumentOpen.bind(this));
+		this.registerMessageHandler("textDocument/didChange", this.handleDocumentChange.bind(this));
 		// this.registerMessageHandler("textDocument/diagnostic", this.handleDiagnosticRequest.bind(this));
 		// this.registerMessageHandler("textDocument/completion", this.handleCompletionRequest.bind(this));
 		// this.registerMessageHandler("textDocument/hover", this.handleHoverRequest.bind(this));
@@ -116,11 +124,33 @@ class LSP {
 		const replyBody: InitializeResult = {
 			capabilities: serverCapabilities,
 			serverInfo: {
-				name: "VTSL LSP Implementation"
+				name: "TCL3 LSP Implementation"
 			}
 		};
 
 		return replyBody;
+	}
+
+	private handleDocumentOpen(message: RequestMessage, payload: DidOpenTextDocumentParams) {
+		console.log(
+			`Received open document request for ${payload.textDocument.uri} (${payload.textDocument.languageId}) with ${payload.textDocument.text.length} characters`
+		);
+
+		if (!this.files.has(payload.textDocument.uri)) {
+			console.log(`Creating new document for ${payload.textDocument.uri}`);
+			this.files.set(payload.textDocument.uri, new Document(payload.textDocument.uri));
+		} else {
+			this.files.get(payload.textDocument.uri).handleFullText(payload.textDocument.text);
+		}
+	}
+
+	private handleDocumentChange(message: RequestMessage, payload: DidChangeTextDocumentParams) {
+		if (!this.files.has(payload.textDocument.uri)) {
+			console.log(`Document ${payload.textDocument.uri} not found for handleDocumentChange`);
+			return;
+		}
+
+		this.files.get(payload.textDocument.uri).handleChange(payload.contentChanges);
 	}
 
 	private getRawMessageHandler() {
@@ -136,10 +166,11 @@ class LSP {
 			}
 
 			mBuffer += message;
-			if (mBuffer.length < expectLength) return;
+			const bufLen = Buffer.byteLength(mBuffer, "utf8");
+			if (bufLen < expectLength) return;
 
-			if (mBuffer.length > expectLength) {
-				console.log(`Received more data than expected: ${mBuffer.length} > ${expectLength}`);
+			if (bufLen > expectLength) {
+				console.log(`Received more data than expected: ${bufLen} > ${expectLength}`);
 			}
 
 			const jsonData = JSON.parse(mBuffer);
@@ -158,10 +189,8 @@ class LSP {
 		};
 
 		const content = JSON.stringify(reply);
-		this.transportWriter(`Content-Length: ${content.length}\r\n\r\n${content}`);
-
-		// if (this.useWs) this.client.send(`Content-Length: ${content.length}\r\n\r\n${content}`);
-		// else this.transportWriter(`Content-Length: ${content.length}\r\n\r\n${content}`);
+		const contentLength = Buffer.byteLength(content, "utf8");
+		this.transportWriter(`Content-Length: ${contentLength}\r\n\r\n${content}`);
 	}
 
 	private registerMessageHandler<T>(method: string, handler: (message: RequestMessage, payload: T) => any) {

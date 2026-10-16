@@ -11,7 +11,7 @@ import { UnitTester } from "./unitTests.js";
 function linkCompileAndExecute(sourceFilePath: string) {
 	const linker = new Linker(sourceFilePath);
 	linker.enableDebug("../debug");
-	const astProgram = linker.compile();
+	const astProgram = linker.link();
 	const compiler = new Compiler(astProgram);
 	const irProgram = compiler.compile();
 	fs.writeFileSync("../debug/ir.txt", IRBuilder.getDebugText(irProgram, false));

@@ -31,7 +31,7 @@ import {
 	WhileLoop,
 	WrappedTypeRef
 } from "../parser/ast.js";
-import { resultTypeIsBoolOperands, TokenType } from "../parser/tokenizer.js";
+import { mainFnName, resultTypeIsBoolOperands, TokenType } from "../parser/tokenizer.js";
 import { BuiltInFunction, builtInFunctions } from "./builtInFunctions.js";
 import { FunctionContext } from "./functionContext.js";
 import { Enum, Struct } from "./userTypes.js";
@@ -156,7 +156,7 @@ class Compiler {
 	protected structs: Map<string, Struct> = new Map();
 	private enums: Map<string, Enum> = new Map();
 	public functions: Map<string, FunctionContext[]> = new Map();
-	private mainLabel: string = "main";
+	private mainLabel: string = mainFnName;
 
 	private continueLabelStack: string[] = [];
 	private get continueLabel(): string {
@@ -1119,7 +1119,7 @@ class Compiler {
 		const funcCtx = new FunctionContext(this, node);
 		this.currentContext = funcCtx;
 
-		if (node.name != "main") {
+		if (node.name != mainFnName) {
 			this.builder.comment(`Save and setup fp`);
 			this.builder.push(reg(Register.fp));
 			this.builder.move(reg(Register.sp), reg(Register.fp));
@@ -1154,7 +1154,7 @@ class Compiler {
 		this.builder.addLabel(funcCtx.outLabel);
 
 		// Skip function epilogue
-		if (node.name == "main") {
+		if (node.name == mainFnName) {
 			this.builder.jump(label(programExitLabel));
 			this.currentContext = null;
 			return funcCtx;

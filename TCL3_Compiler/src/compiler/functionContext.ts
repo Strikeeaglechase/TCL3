@@ -3,6 +3,7 @@ import chalk from "chalk";
 import { Register } from "../ir/ir.js";
 import { imm, IRBuilder, label, memReg, reg } from "../ir/irBuilder.js";
 import { ASTType, ASTTypeRef, FunctionDeclaration, FunctionTypeRef, ReturnStatement, VariableDeclaration } from "../parser/ast.js";
+import { mainFnName } from "../parser/tokenizer.js";
 import { walk } from "../parser/walker.js";
 import { Compiler, FunctionCallInfo, typeToStr } from "./compiler.js";
 
@@ -41,7 +42,7 @@ class FunctionContext {
 	) {
 		this.name = func.name;
 		const fnId = id++;
-		this.label = this.name == "main" ? "main" : `${this.name}_${fnId}`;
+		this.label = this.name == mainFnName ? mainFnName : `${this.name}_${fnId}`;
 		this.outLabel = `${this.name}_out_${fnId}`;
 		this.argSize = func.parameters.reduce((acc, param) => acc + this.compiler.resolveTypeSize(param.type), 0);
 		this.builder = this.compiler.builder;

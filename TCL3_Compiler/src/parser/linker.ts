@@ -6,6 +6,16 @@ import { Parser } from "./parser.js";
 import { Token, Tokenizer } from "./tokenizer.js";
 
 let fileId = 0;
+
+type FileReader = (filePath: string) => string;
+interface LinkerOptions {
+	readFile: FileReader;
+}
+
+const defaultLinkerOptions: LinkerOptions = {
+	readFile: (filePath: string) => fs.readFileSync(filePath, "utf-8")
+};
+
 class TargetFile {
 	public readonly filePath: string;
 	private content: string;
@@ -20,16 +30,14 @@ class TargetFile {
 
 	private debugDir: string = null;
 
-	constructor(filePath: string, isPrimary: boolean = false) {
+	constructor(filePath: string, readFile: FileReader) {
 		this.filePath = path.resolve(filePath);
-		this.content = fs.readFileSync(filePath, "utf-8");
+		this.content = readFile(this.filePath);
 
 		const tokenizeResult = new Tokenizer(this.content).tokenize();
 		this.includes = tokenizeResult.includes;
 		this.exports = tokenizeResult.exports;
 		this.tokens = tokenizeResult.tokens;
-
-		if (isPrimary) this.exports.push("main"); // Prevent rewriting name of main
 	}
 
 	public parse(publicSymbols: string[]) {
@@ -53,9 +61,11 @@ class TargetFile {
 class Linker {
 	private files: TargetFile[] = [];
 	private debugDir: string = null;
+	private readonly options: LinkerOptions;
 
-	constructor(targetFilePath: string) {
-		this.addFile(targetFilePath, true);
+	constructor(targetFilePath: string, options: Partial<LinkerOptions> = {}) {
+		this.options = { ...defaultLinkerOptions, ...options };
+		this.addFile(targetFilePath);
 	}
 
 	public enableDebug(debugDir: string) {
@@ -73,7 +83,7 @@ class Linker {
 		return this.files.find(file => !file.parsed && file.dependencies.every(dep => dep.parsed));
 	}
 
-	public compile() {
+	public link() {
 		const publicSymbols = this.files.flatMap(file => file.exports);
 		if (this.debugDir) {
 			this.files.forEach(file => file.enableDebugIn(this.debugDir));
@@ -107,11 +117,11 @@ class Linker {
 		return combinedAST;
 	}
 
-	private addFile(filePath: string, isPrimary: boolean = false) {
+	private addFile(filePath: string) {
 		const existingFile = this.files.find(f => f.isSameAs(filePath));
 		if (existingFile) return existingFile;
 
-		const file = new TargetFile(filePath, isPrimary);
+		const file = new TargetFile(filePath, this.options.readFile);
 		this.files.push(file);
 
 		const dependencies = file.includes.map(includePath => {

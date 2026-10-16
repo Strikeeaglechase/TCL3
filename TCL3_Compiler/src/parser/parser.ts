@@ -30,7 +30,7 @@ import {
 	WhileLoop,
 	WrappedTypeRef
 } from "./ast.js";
-import { operandPrecedence, selfAssignMathOps, Token, TokenType } from "./tokenizer.js";
+import { mainFnName, operandPrecedence, selfAssignMathOps, Token, TokenType } from "./tokenizer.js";
 
 const allowedOperatorOverloads = ["+", "-", "*", "/", "[]", "==", "!=", "<", ">", "<=", ">=", "&&", "||", "&", "|", "^", "<<", ">>"];
 const builtinTypes = ["int", "char", "bool", "void"];
@@ -53,7 +53,10 @@ class Parser {
 				.toString(16)
 				.padStart(8, "0");
 
-		this.tokenStream = new TypedObjectStream(tokens);
+		// Remove comments and preprocessor directives as these are non-code tokens
+		// They're returned from the tokenizer to allow for LSP features
+		const readCodeTokens = tokens.filter(token => token.type != TokenType.PreprocessorDirective && token.type != TokenType.Comment);
+		this.tokenStream = new TypedObjectStream(readCodeTokens);
 	}
 
 	public parse(): Program {
@@ -445,6 +448,7 @@ class Parser {
 
 	private maybeRewriteName(name: string, createIfNeeded = true): string {
 		if (this.publicSymbols.includes(name)) return name; // Don't rewrite exported symbols
+		if (name == mainFnName) return name; // Don't rewrite main function
 		if (this.rewrittenNames.has(name)) return this.rewrittenNames.get(name);
 		if (name.startsWith("__")) return name;
 		if (builtinTypes.includes(name)) return name;
