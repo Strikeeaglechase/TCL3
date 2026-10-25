@@ -1,4 +1,5 @@
-import { TokenType } from "./tokenizer.js";
+import { SourceSpan } from "../errors.js";
+import { Token, TokenType } from "./tokenizer.js";
 
 export enum ASTType {
 	Program = "Program",
@@ -35,6 +36,7 @@ export enum ASTType {
 
 export interface ASTNode {
 	type: ASTType;
+	location?: SourceSpan;
 }
 
 export interface Program extends ASTNode {
@@ -45,7 +47,8 @@ export interface Program extends ASTNode {
 export interface FunctionDeclaration extends ASTNode {
 	type: ASTType.FunctionDeclaration;
 	name: string;
-	parameters: { name: string; type: ASTTypeRef }[];
+	nameToken: Token;
+	parameters: { name: string; nameToken: Token; type: ASTTypeRef; location: SourceSpan }[];
 	returnType: ASTTypeRef;
 	body: AST[];
 	static: boolean;
@@ -65,11 +68,13 @@ export interface FunctionTypeRef extends ASTNode {
 export interface RawTypeRef extends ASTNode {
 	type: ASTType.RawTypeRef;
 	rawType: string;
+	rawTypeToken: Token;
 }
 
 export interface Reference extends ASTNode {
 	type: ASTType.Reference;
 	identifier: string;
+	identifierToken: Token;
 	offsetExpressions: AST[] | null;
 	child: Reference | null;
 	dereferenceCount: number;
@@ -90,14 +95,16 @@ export interface BinaryExpression extends ASTNode {
 export interface StructDeclaration extends ASTNode {
 	type: ASTType.StructDeclaration;
 	name: string;
-	fields: { name: string; type: ASTTypeRef }[];
+	nameToken: Token;
+	fields: { name: string; nameToken: Token; type: ASTTypeRef; location: SourceSpan }[];
 	methods: FunctionDeclaration[];
 }
 
 export interface EnumDeclaration extends ASTNode {
 	type: ASTType.EnumDeclaration;
 	name: string;
-	variants: { name: string; value: number }[];
+	nameToken: Token;
+	variants: { name: string; nameToken: Token; value: number; location: SourceSpan }[];
 }
 
 export interface Initializer extends ASTNode {
@@ -108,12 +115,14 @@ export interface Initializer extends ASTNode {
 export interface StructFieldInitializer extends ASTNode {
 	type: ASTType.StructFieldInitializer;
 	name: string;
+	nameToken: Token;
 	expression: AST;
 }
 
 export interface VariableDeclaration extends ASTNode {
 	type: ASTType.VariableDeclaration;
 	name: string;
+	nameToken: Token;
 	variableType: ASTTypeRef;
 	initializer: AST;
 	arraySizeExpression: AST | null;
@@ -181,8 +190,8 @@ export interface IfStatement extends ASTNode {
 	type: ASTType.IfStatement;
 	condition: AST;
 	thenBody: AST[];
-	elseBody: AST[] | null;
-	elseIfs: { condition: AST; body: AST[] }[];
+	elseBody: { body: AST[] | null; location: SourceSpan } | null;
+	elseIfs: { condition: AST; body: AST[]; location: SourceSpan }[];
 }
 
 export interface Block extends ASTNode {

@@ -34,39 +34,8 @@ import {
 import { mainFnName, resultTypeIsBoolOperands, TokenType } from "../parser/tokenizer.js";
 import { BuiltInFunction, builtInFunctions } from "./builtInFunctions.js";
 import { FunctionContext } from "./functionContext.js";
+import { boolType, charType, intType, primitiveSizeMap, ptrOf, typeToStr, voidType } from "./types.js";
 import { Enum, Struct } from "./userTypes.js";
-
-/*
-IR structure:
-Arguments in form of:
-IMM(value), REG(registerName), MEM(address), MEM_REG(registerName)
-*/
-
-function typeToStr(type: ASTTypeRef): string {
-	let result = "";
-	let current = type;
-	while (true) {
-		if (current.type == ASTType.WrappedTypeRef) {
-			result += "*";
-			current = current.inner;
-		} else if (current.type == ASTType.FunctionTypeRef) {
-			let fnType = `Fn<`;
-			current.parameters.forEach((p, idx) => {
-				if (idx > 0) fnType += ", ";
-				fnType += typeToStr(p);
-			});
-			if (current.parameters.length > 0) fnType += ", ";
-			fnType += `${typeToStr(current.returnType)}>`;
-			result += fnType;
-			break;
-		} else if (current.type == ASTType.RawTypeRef) {
-			result += current.rawType;
-			break;
-		}
-	}
-
-	return result;
-}
 
 function referenceToString(ref: Reference): string {
 	let result = "";
@@ -96,33 +65,6 @@ interface FunctionCallInfo {
 	argumentSize: number;
 	argumentCount: number;
 }
-
-const primitiveSizeMap: Record<string, number> = {
-	void: 0,
-	int: INT_SIZE,
-	char: INT_SIZE,
-	bool: INT_SIZE
-};
-
-const intType = (): RawTypeRef => {
-	return { type: ASTType.RawTypeRef, rawType: "int" };
-};
-
-const charType = (): RawTypeRef => {
-	return { type: ASTType.RawTypeRef, rawType: "char" };
-};
-
-const boolType = (): RawTypeRef => {
-	return { type: ASTType.RawTypeRef, rawType: "bool" };
-};
-
-const voidType = (): RawTypeRef => {
-	return { type: ASTType.RawTypeRef, rawType: "void" };
-};
-
-const ptrOf = (type: ASTTypeRef): WrappedTypeRef => {
-	return { type: ASTType.WrappedTypeRef, inner: type };
-};
 
 class BinaryExpressionTypeEvalResult {
 	private constructor(
@@ -362,7 +304,7 @@ class Compiler {
 			this.builder.addLabel(elifEnd);
 		});
 
-		if (node.elseBody) node.elseBody.forEach(bodyNode => this.compileAst(bodyNode));
+		if (node.elseBody) node.elseBody.body.forEach(bodyNode => this.compileAst(bodyNode));
 
 		if (ifEnd) this.builder.addLabel(ifEnd);
 	}
@@ -660,7 +602,7 @@ class Compiler {
 			if (!enumDecl.variants.has(node.child.identifier))
 				throw new Error(`Enum '${node.identifier}' does not have a variant named '${node.child.identifier}'.`);
 
-			return { type: { type: ASTType.RawTypeRef, rawType: enumDecl.name }, isMethod: false };
+			return { type: enumDecl.typeRef, isMethod: false };
 		}
 
 		if (this.structs.has(node.identifier)) {
@@ -1394,7 +1336,7 @@ class Compiler {
 		this.builder.comment(`Calling method ${debugName}`);
 
 		const argumentList = call.arguments.map(arg => this.inferTypeFrom(arg));
-		argumentList.unshift(ptrOf({ type: ASTType.RawTypeRef, rawType: struct.name })); // Add this pointer as first argument
+		argumentList.unshift(ptrOf(struct.typeRef)); // Add this pointer as first argument
 		const matchingMethod = this.findFunctionMatchingArgumentList(methods, argumentList);
 
 		return this.callFunction(debugName, matchingMethod.getCallInfo(), call, call.reference);
@@ -1463,4 +1405,4 @@ class Compiler {
 	}
 }
 
-export { Compiler, FunctionCallInfo, typeToStr, referenceToString, primitiveSizeMap };
+export { Compiler, FunctionCallInfo, referenceToString };

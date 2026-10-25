@@ -1,16 +1,19 @@
+import fs from "fs";
 import net from "net";
+import { preprocessorDirectiveStart } from "tlc3/parser/tokenizer.js";
 import { RequestMessage, ResponseMessage } from "vscode-jsonrpc";
 import { WebSocket, WebSocketServer } from "ws";
 
-import { preprocessorDirectiveStart } from "./compiler/parser/tokenizer.js";
 import { Document } from "./document.js";
-import { SemanticTokenTypes, TextDocumentSyncKind } from "./extraLspTypes.js";
+import { SemanticTokenModifiers, SemanticTokenTypes, TextDocumentSyncKind } from "./extraLspTypes.js";
+import { SemanticTokens } from "./lspTypes/api.js";
 import {
 	DidChangeTextDocumentParams,
 	DidOpenTextDocumentParams,
 	DocumentSelector,
 	InitializeParams,
 	InitializeResult,
+	SemanticTokensParams,
 	ServerCapabilities
 } from "./lspTypes/protocol.js";
 
@@ -37,7 +40,7 @@ const serverCapabilities: ServerCapabilities = {
 				SemanticTokenTypes.string,
 				SemanticTokenTypes.number
 			],
-			tokenModifiers: []
+			tokenModifiers: [SemanticTokenModifiers.declaration, SemanticTokenModifiers.definition, SemanticTokenModifiers.static]
 		},
 		full: true
 	},
@@ -55,11 +58,24 @@ const serverCapabilities: ServerCapabilities = {
 	inlayHintProvider: true
 };
 
+const tokenTypeToIndex = (type: SemanticTokenTypes) => serverCapabilities.semanticTokensProvider.legend.tokenTypes.indexOf(type);
+
+const cleanUri = (uri: string) => {
+	uri = uri.replace("%3A", ":");
+	if (uri.startsWith("file:///")) {
+		uri = uri.substring("file:///".length);
+	}
+
+	return uri;
+};
+
 class LSP {
 	private transportWriter: (data: string) => void;
 	private messageHandlers: Record<string, (message: RequestMessage, payload: any) => any> = {};
+	private loggedNoHandler: Set<string> = new Set();
 
 	private files: Map<string, Document> = new Map();
+	private directLoadContentCache: Map<string, string> = new Map();
 
 	private client: WebSocket;
 	private wss: WebSocketServer;
@@ -110,9 +126,9 @@ class LSP {
 		}
 
 		this.registerMessageHandler("initialize", this.handleInit.bind(this));
-		// this.registerMessageHandler("textDocument/semanticTokens/full", this.handleSemanticTokensRequest.bind(this));
 		this.registerMessageHandler("textDocument/didOpen", this.handleDocumentOpen.bind(this));
 		this.registerMessageHandler("textDocument/didChange", this.handleDocumentChange.bind(this));
+		this.registerMessageHandler("textDocument/semanticTokens/full", this.handleSemanticTokensRequest.bind(this));
 		// this.registerMessageHandler("textDocument/diagnostic", this.handleDiagnosticRequest.bind(this));
 		// this.registerMessageHandler("textDocument/completion", this.handleCompletionRequest.bind(this));
 		// this.registerMessageHandler("textDocument/hover", this.handleHoverRequest.bind(this));
@@ -132,25 +148,67 @@ class LSP {
 	}
 
 	private handleDocumentOpen(message: RequestMessage, payload: DidOpenTextDocumentParams) {
-		console.log(
-			`Received open document request for ${payload.textDocument.uri} (${payload.textDocument.languageId}) with ${payload.textDocument.text.length} characters`
-		);
+		const uri = cleanUri(payload.textDocument.uri);
+		console.log(`Received open document request for ${uri} (${payload.textDocument.languageId}) with ${payload.textDocument.text.length} characters`);
 
-		if (!this.files.has(payload.textDocument.uri)) {
-			console.log(`Creating new document for ${payload.textDocument.uri}`);
-			this.files.set(payload.textDocument.uri, new Document(payload.textDocument.uri));
+		if (this.directLoadContentCache.has(uri)) {
+			console.log(`Removing ${uri} from direct load content cache`);
+			this.directLoadContentCache.delete(uri);
+		}
+
+		if (!this.files.has(uri)) {
+			console.log(`Creating new document for ${uri}`);
+			const doc = new Document(this, uri);
+			this.files.set(uri, doc);
+			doc.handleFullText(payload.textDocument.text);
 		} else {
-			this.files.get(payload.textDocument.uri).handleFullText(payload.textDocument.text);
+			this.files.get(uri).handleFullText(payload.textDocument.text);
 		}
 	}
 
 	private handleDocumentChange(message: RequestMessage, payload: DidChangeTextDocumentParams) {
-		if (!this.files.has(payload.textDocument.uri)) {
-			console.log(`Document ${payload.textDocument.uri} not found for handleDocumentChange`);
+		const uri = cleanUri(payload.textDocument.uri);
+		if (!this.files.has(uri)) {
+			console.log(`Document ${uri} not found for handleDocumentChange`);
 			return;
 		}
 
-		this.files.get(payload.textDocument.uri).handleChange(payload.contentChanges);
+		this.files.get(uri).handleChange(payload.contentChanges);
+	}
+
+	private handleSemanticTokensRequest(message: RequestMessage, payload: SemanticTokensParams) {
+		const uri = cleanUri(payload.textDocument.uri);
+		const file = this.files.get(uri);
+
+		if (!file) {
+			console.log(`Document ${uri} not found for handleSemanticTokensRequest`);
+			return { data: [] as number[] };
+		}
+
+		const response: SemanticTokens = {
+			data: file.getSemanticTokens()
+		};
+
+		// console.log(response.data);
+
+		return response;
+	}
+
+	public handleFileRead(filePath: string): string {
+		if (this.files.has(filePath)) {
+			return this.files.get(filePath).content;
+		}
+
+		if (this.directLoadContentCache.has(filePath)) {
+			return this.directLoadContentCache.get(filePath);
+		}
+
+		console.log(`File ${filePath} not found in LSP files map, reading from disk`);
+		const content = fs.readFileSync(filePath, "utf8");
+
+		this.directLoadContentCache.set(filePath, content);
+
+		return content;
 	}
 
 	private getRawMessageHandler() {
@@ -200,7 +258,10 @@ class LSP {
 	private handleMessage(message: RequestMessage) {
 		const handler = this.messageHandlers[message.method];
 		if (!handler) {
-			console.log(`No handler for method ${message.method}`);
+			if (!this.loggedNoHandler.has(message.method)) {
+				this.loggedNoHandler.add(message.method);
+				console.log(`No handler for method ${message.method}`);
+			}
 			return;
 		}
 		console.log(`Handling message ${message.method}`);
@@ -212,3 +273,5 @@ class LSP {
 
 const lsp = new LSP(8000);
 lsp.init();
+
+export { LSP, tokenTypeToIndex };

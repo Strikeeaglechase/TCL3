@@ -5,7 +5,8 @@ import { imm, IRBuilder, label, memReg, reg } from "../ir/irBuilder.js";
 import { ASTType, ASTTypeRef, FunctionDeclaration, FunctionTypeRef, ReturnStatement, VariableDeclaration } from "../parser/ast.js";
 import { mainFnName } from "../parser/tokenizer.js";
 import { walk } from "../parser/walker.js";
-import { Compiler, FunctionCallInfo, typeToStr } from "./compiler.js";
+import { Compiler, FunctionCallInfo } from "./compiler.js";
+import { typeToStr } from "./types.js";
 
 interface Local {
 	type: ASTTypeRef;

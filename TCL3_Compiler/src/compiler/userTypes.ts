@@ -1,9 +1,11 @@
-import { ASTTypeRef, EnumDeclaration, StructDeclaration } from "../parser/ast.js";
+import { ASTType, ASTTypeRef, EnumDeclaration, RawTypeRef, StructDeclaration } from "../parser/ast.js";
+import { Token } from "../parser/tokenizer.js";
 import { Compiler } from "./compiler.js";
 import { FunctionContext } from "./functionContext.js";
 
 class Struct {
 	public name: string;
+	private nameToken: Token;
 	public fields: Map<string, { type: ASTTypeRef; offset: number }> = new Map();
 	public methods: Map<string, FunctionContext[]> = new Map();
 	public size: number = 0;
@@ -13,11 +15,16 @@ class Struct {
 		private def: StructDeclaration
 	) {
 		this.name = def.name;
+		this.nameToken = def.nameToken;
 		def.fields.forEach(field => {
 			const size = this.compiler.resolveTypeSize(field.type);
 			this.fields.set(field.name, { type: field.type, offset: this.size });
 			this.size += size;
 		});
+	}
+
+	public get typeRef(): RawTypeRef {
+		return { type: ASTType.RawTypeRef, rawType: this.name, rawTypeToken: this.nameToken };
 	}
 
 	public buildMethods() {
@@ -42,6 +49,7 @@ class Struct {
 
 class Enum {
 	public name: string;
+	private nameToken: Token;
 	public variants: Map<string, number> = new Map();
 
 	constructor(def: EnumDeclaration) {
@@ -49,6 +57,10 @@ class Enum {
 		def.variants.forEach(variant => {
 			this.variants.set(variant.name, variant.value);
 		});
+	}
+
+	public get typeRef(): RawTypeRef {
+		return { type: ASTType.RawTypeRef, rawType: this.name, rawTypeToken: this.nameToken };
 	}
 }
 

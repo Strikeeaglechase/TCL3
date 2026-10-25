@@ -8,12 +8,20 @@ const walkNodeHandlers: WalkHandlersMap = {
 		visitor(node.right);
 	},
 	[ASTType.UnaryExpression]: (node, visitor) => visitor(node.operand),
-	[ASTType.FunctionDeclaration]: (node, visitor) => node.body.forEach(visitor),
+	[ASTType.FunctionDeclaration]: (node, visitor) => {
+		node.parameters.forEach(param => visitor(param.type));
+		visitor(node.returnType);
+		node.body.forEach(visitor);
+	},
 	[ASTType.VariableDeclaration]: (node, visitor) => {
+		visitor(node.variableType);
 		visitor(node.arraySizeExpression);
 		visitor(node.initializer);
 	},
-	[ASTType.Reference]: (node, visitor) => visitor(node.child),
+	[ASTType.Reference]: (node, visitor) => {
+		if (node.offsetExpressions) node.offsetExpressions.forEach(visitor);
+		visitor(node.child);
+	},
 	[ASTType.VariableAssignment]: (node, visitor) => {
 		visitor(node.reference);
 		visitor(node.expression);
@@ -29,7 +37,7 @@ const walkNodeHandlers: WalkHandlersMap = {
 			visitor(v.condition);
 			v.body.forEach(visitor);
 		});
-		if (node.elseBody) node.elseBody.forEach(visitor);
+		if (node.elseBody) node.elseBody.body.forEach(visitor);
 	},
 	[ASTType.ForLoop]: (node, visitor) => {
 		visitor(node.initializer);

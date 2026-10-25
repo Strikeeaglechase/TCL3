@@ -1,5 +1,3 @@
 dist
 node_modules
 debug
-
-src/compiler

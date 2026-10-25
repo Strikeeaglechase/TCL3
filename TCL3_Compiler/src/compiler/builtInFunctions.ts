@@ -1,7 +1,8 @@
 import { Register } from "../ir/ir.js";
 import { imm, reg } from "../ir/irBuilder.js";
-import { ASTType, ASTTypeRef, FunctionCall, RawTypeRef, WrappedTypeRef } from "../parser/ast.js";
-import { Compiler, primitiveSizeMap } from "./compiler.js";
+import { ASTType, ASTTypeRef, FunctionCall } from "../parser/ast.js";
+import { Compiler } from "./compiler.js";
+import { primitiveSizeMap, ptrOf, rawTypeOf } from "./types.js";
 
 interface BuiltInFunction {
 	name: string;
@@ -10,27 +11,10 @@ interface BuiltInFunction {
 	handleCall: (this: Compiler, call: FunctionCall) => void;
 }
 
-const rawType = (type: string): ASTTypeRef => {
-	const raw: RawTypeRef = {
-		type: ASTType.RawTypeRef,
-		rawType: type
-	};
-	return raw;
-};
-
-const ptrType = (inner: string): ASTTypeRef => {
-	const wrapped: WrappedTypeRef = {
-		type: ASTType.WrappedTypeRef,
-		inner: rawType(inner)
-	};
-
-	return wrapped;
-};
-
 const builtInFunctions: BuiltInFunction[] = [
 	{
 		name: "malloc",
-		returnType: ptrType("void"),
+		returnType: ptrOf(rawTypeOf("void")),
 		handleCall: function (this: Compiler, call: FunctionCall) {
 			if (call.arguments.length != 1) throw new Error(`malloc expects 1 argument, got ${call.arguments.length}`);
 
@@ -42,7 +26,7 @@ const builtInFunctions: BuiltInFunction[] = [
 	},
 	{
 		name: "sizeof",
-		returnType: rawType("int"),
+		returnType: rawTypeOf("int"),
 		handleCall: function (this: Compiler, call: FunctionCall) {
 			if (call.arguments.length != 1) throw new Error(`sizeof expects 1 argument, got ${call.arguments.length}`);
 			if (call.arguments[0].type != ASTType.Reference) throw new Error(`sizeof expects a reference as its argument, got ${call.arguments[0].type}`);

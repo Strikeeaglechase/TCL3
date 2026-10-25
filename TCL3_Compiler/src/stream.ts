@@ -7,7 +7,7 @@ class Stream<T> {
 	public get position() {
 		return this.index;
 	}
-	constructor(private data: T[]) {}
+	constructor(public data: T[]) {}
 
 	public peak(): T {
 		return this.data[this.index];

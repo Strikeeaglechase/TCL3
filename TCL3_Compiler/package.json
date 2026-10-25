@@ -4,14 +4,27 @@
 	"description": "",
 	"main": "dist/index.js",
 	"type": "module",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		},
+		"./*.js": {
+			"types": "./dist/*.d.ts",
+			"default": "./dist/*.js"
+		}
+	},
+	"files": ["dist", "src"],
 	"scripts": {
+		"build": "tsc -p tsconfig.json",
 		"test": "echo \"Error: no test specified\" && exit 1"
 	},
 	"keywords": [],
 	"author": "",
 	"license": "ISC",
 	"devDependencies": {
-		"@types/node": "^26.6.2"
+		"@types/node": "^26.6.2",
+		"typescript": "^5.9.3"
 	},
 	"dependencies": {
 		"chalk": "^6.0.1"

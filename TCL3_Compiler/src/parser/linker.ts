@@ -5,19 +5,23 @@ import { ASTType, Program } from "./ast.js";
 import { Parser } from "./parser.js";
 import { Token, Tokenizer } from "./tokenizer.js";
 
-let fileId = 0;
-
 type FileReader = (filePath: string) => string;
 interface LinkerOptions {
 	readFile: FileReader;
+	pathResolver: (filePath: string) => string;
+	throwOnError: boolean;
 }
 
 const defaultLinkerOptions: LinkerOptions = {
-	readFile: (filePath: string) => fs.readFileSync(filePath, "utf-8")
+	readFile: (filePath: string) => fs.readFileSync(filePath, "utf-8"),
+	pathResolver: (filePath: string) => path.resolve(filePath),
+	throwOnError: true
 };
 
+let globalFileCounter = 0;
 class TargetFile {
 	public readonly filePath: string;
+	public readonly identifier: string;
 	private content: string;
 	public readonly includes: string[];
 	public readonly exports: string[];
@@ -25,24 +29,30 @@ class TargetFile {
 	public dependencies: TargetFile[] = [];
 
 	private tokens: Token[];
+	public getTokens(): Token[] {
+		return this.tokens;
+	}
 	public ast: Program;
 	public parsed = false;
 
 	private debugDir: string = null;
 
-	constructor(filePath: string, readFile: FileReader) {
-		this.filePath = path.resolve(filePath);
-		this.content = readFile(this.filePath);
+	constructor(
+		filePath: string,
+		private opts: LinkerOptions
+	) {
+		this.filePath = opts.pathResolver(filePath);
+		this.identifier = `file_${path.basename(filePath)}_${globalFileCounter++}`;
+		this.content = opts.readFile(this.filePath);
 
-		const tokenizeResult = new Tokenizer(this.content).tokenize();
+		const tokenizeResult = new Tokenizer(this.content, opts.throwOnError, this.identifier).tokenize();
 		this.includes = tokenizeResult.includes;
 		this.exports = tokenizeResult.exports;
 		this.tokens = tokenizeResult.tokens;
 	}
 
 	public parse(publicSymbols: string[]) {
-		const name = path.basename(this.filePath, path.extname(this.filePath));
-		this.ast = new Parser(this.tokens, publicSymbols, name + fileId++).parse();
+		this.ast = new Parser(this.tokens, publicSymbols, this.identifier, this.opts.throwOnError).parse();
 		if (this.debugDir) fs.writeFileSync(path.join(this.debugDir, path.basename(this.filePath) + ".ast.json"), JSON.stringify(this.ast, null, 2));
 		this.parsed = true;
 		return this.ast;
@@ -54,18 +64,20 @@ class TargetFile {
 	}
 
 	public isSameAs(otherPath: string) {
-		return path.resolve(otherPath) == this.filePath;
+		return this.opts.pathResolver(otherPath) == this.filePath;
 	}
 }
 
 class Linker {
 	private files: TargetFile[] = [];
+	private identifierToFileMap: Map<string, TargetFile> = new Map();
 	private debugDir: string = null;
 	private readonly options: LinkerOptions;
+	public readonly entryFile: TargetFile;
 
 	constructor(targetFilePath: string, options: Partial<LinkerOptions> = {}) {
 		this.options = { ...defaultLinkerOptions, ...options };
-		this.addFile(targetFilePath);
+		this.entryFile = this.addFile(targetFilePath);
 	}
 
 	public enableDebug(debugDir: string) {
@@ -121,11 +133,12 @@ class Linker {
 		const existingFile = this.files.find(f => f.isSameAs(filePath));
 		if (existingFile) return existingFile;
 
-		const file = new TargetFile(filePath, this.options.readFile);
+		const file = new TargetFile(filePath, this.options);
 		this.files.push(file);
+		this.identifierToFileMap.set(file.identifier, file);
 
 		const dependencies = file.includes.map(includePath => {
-			const resolvedIncludePath = path.resolve(path.dirname(filePath), includePath);
+			const resolvedIncludePath = this.options.pathResolver(path.join(path.dirname(filePath), includePath));
 			return this.addFile(resolvedIncludePath);
 		});
 
@@ -133,6 +146,10 @@ class Linker {
 
 		return file;
 	}
+
+	public getFileByIdentifier(identifier: string): TargetFile {
+		return this.identifierToFileMap.get(identifier);
+	}
 }
 
-export { Linker };
+export { Linker, TargetFile };

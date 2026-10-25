@@ -59,12 +59,13 @@ enum PreprocessDirectiveKind {
 	Include = "include"
 }
 
-type NonPositionToken = Omit<Token, "start" | "end">;
+type NonPositionToken = Omit<Token, "start" | "end" | "fileIdentifier">;
 interface Token {
 	type: TokenType;
 	value: string;
 	start: number;
 	end: number;
+	fileIdentifier: string;
 }
 
 class Tokenizer {
@@ -76,7 +77,11 @@ class Tokenizer {
 
 	public errors: TokenizerError[] = [];
 
-	constructor(private input: string) {
+	constructor(
+		input: string,
+		private throwOnError: boolean,
+		private fileIdentifier: string
+	) {
 		this.charStream = new Stream(input.split(""));
 	}
 
@@ -89,6 +94,14 @@ class Tokenizer {
 			try {
 				tokens = this.readToken();
 			} catch (e) {
+				const error = new TokenizerError((e as Error).message, {
+					startIndex: startPos,
+					endIndex: this.charStream.position,
+					fileIdentifier: this.fileIdentifier
+				});
+				this.errors.push(error);
+
+				if (this.throwOnError) throw error;
 				continue;
 			}
 			const endPos = this.charStream.position;
@@ -97,10 +110,10 @@ class Tokenizer {
 			if (!tokens) continue;
 
 			if (Array.isArray(tokens)) {
-				const positionalTokens: Token[] = tokens.map(token => ({ ...token, start: startPos, end: endPos }));
+				const positionalTokens: Token[] = tokens.map(token => ({ ...token, start: startPos, end: endPos, fileIdentifier: this.fileIdentifier }));
 				this.tokens.push(...positionalTokens);
 			} else {
-				this.tokens.push({ ...tokens, start: startPos, end: endPos });
+				this.tokens.push({ ...tokens, start: startPos, end: endPos, fileIdentifier: this.fileIdentifier });
 			}
 		}
 
@@ -197,7 +210,7 @@ class Tokenizer {
 				const defineValue = this.charStream.readUntilAndConsume("\n").join("").trim();
 				if (this.defines.has(defineName)) throw new Error(`Redefinition of preprocessor define: ${defineName}`);
 
-				const { tokens: defineTokens } = new Tokenizer(defineValue).tokenize();
+				const { tokens: defineTokens } = new Tokenizer(defineValue, this.throwOnError, ``).tokenize();
 				this.defines.set(defineName, defineTokens);
 
 				return { type: TokenType.PreprocessorDirective, value: `${preprocessorDirectiveStart}${preprocessor} ${defineName} ${defineValue}` };

@@ -18,10 +18,23 @@ enum SemanticTokenTypes {
 	number = "number"
 }
 
+enum SemanticTokenModifiers {
+	declaration = "declaration",
+	definition = "definition",
+	readonly = "readonly",
+	static = "static",
+	deprecated = "deprecated",
+	abstract = "abstract",
+	async = "async",
+	modification = "modification",
+	documentation = "documentation",
+	defaultLibrary = "defaultLibrary"
+}
+
 enum CompletionItemKind {
 	Method = 2,
 	Function = 3,
 	Variable = 6
 }
 
-export { TextDocumentSyncKind, SemanticTokenTypes, CompletionItemKind };
+export { TextDocumentSyncKind, SemanticTokenTypes, SemanticTokenModifiers, CompletionItemKind };
