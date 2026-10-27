@@ -107,7 +107,7 @@ class UnitTester {
 	private compileTest(file: TestFile) {
 		const linker = new Linker(file.filePath);
 		const astProg = linker.link();
-		const compiler = new Compiler(astProg);
+		const compiler = new Compiler(astProg, true);
 		return compiler.compile();
 	}
 

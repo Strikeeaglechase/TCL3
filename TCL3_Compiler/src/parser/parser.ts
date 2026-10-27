@@ -126,7 +126,7 @@ class Parser {
 					throw new Error(`Unexpected token type: ${token.type}`);
 			}
 		} catch (e) {
-			const parseError = new ParserError(e.message, this.spanFromStartingTokenIndex(startIndex));
+			const parseError = new ParserError(e, this.spanFromStartingTokenIndex(startIndex));
 			this.parseErrors.push(parseError);
 
 			if (this.throwOnError) throw parseError;
@@ -544,6 +544,7 @@ class Parser {
 
 			const fnType: FunctionTypeRef = {
 				type: ASTType.FunctionTypeRef,
+				fnKeywordToken: baseTypeToken,
 				parameters: typeArgs,
 				returnType: returnType,
 				location: this.spanFromStartingTokenIndex(tokenStartIndex)

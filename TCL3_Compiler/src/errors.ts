@@ -6,23 +6,29 @@ interface SourceSpan {
 
 abstract class TCl3Error extends Error {
 	constructor(
-		message: string,
+		orgError: Error,
 		public location: SourceSpan
 	) {
-		super(message);
+		super(orgError.message, { cause: orgError });
 	}
 }
 
 class TokenizerError extends TCl3Error {
-	constructor(message: string, location: SourceSpan) {
-		super(message, location);
+	constructor(orgError: Error, location: SourceSpan) {
+		super(orgError, location);
 	}
 }
 
 class ParserError extends TCl3Error {
-	constructor(message: string, location: SourceSpan) {
-		super(message, location);
+	constructor(orgError: Error, location: SourceSpan) {
+		super(orgError, location);
 	}
 }
 
-export { TCl3Error, TokenizerError, ParserError, SourceSpan };
+class CompilerError extends TCl3Error {
+	constructor(orgError: Error, location: SourceSpan) {
+		super(orgError, location);
+	}
+}
+
+export { TCl3Error, TokenizerError, ParserError, SourceSpan, CompilerError };

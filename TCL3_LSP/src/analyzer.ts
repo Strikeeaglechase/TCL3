@@ -1,7 +1,9 @@
 import path from "path";
+import { Compiler } from "tlc3/compiler/compiler.js";
+import { typeToStr } from "tlc3/compiler/types.js";
 import { AST, ASTType, Program } from "tlc3/parser/ast.js";
 import { Linker } from "tlc3/parser/linker.js";
-import { TokenType } from "tlc3/parser/tokenizer.js";
+import { Token, TokenType } from "tlc3/parser/tokenizer.js";
 import { walk } from "tlc3/parser/walker.js";
 
 import { SemanticTokenTypes } from "./extraLspTypes.js";
@@ -67,8 +69,10 @@ const tokenAt = (type: SemanticTokenTypes, location: ILocatable): TokenTypeRange
 class Analyzer {
 	private readonly linker: Linker;
 	private readonly program: Program;
+	private readonly compiler: Compiler;
 
 	public tokenTypeRanges: TokenTypeRange[] = [];
+	private tokens: Token[] = [];
 
 	constructor(entryFile: string, readFile: (filePath: string) => string) {
 		this.linker = new Linker(entryFile, {
@@ -76,7 +80,12 @@ class Analyzer {
 			pathResolver: path => path,
 			throwOnError: false
 		});
+
 		this.program = this.linker.link();
+		this.tokens = this.linker.entryFile.getTokens();
+
+		this.compiler = new Compiler(this.program, false);
+		this.compiler.compile();
 
 		this.buildTokenTypeRanges();
 	}
@@ -95,13 +104,37 @@ class Analyzer {
 		return nonOverlappingRanges;
 	}
 
+	public getHoverDetailAtIndex(index: number): { detail: string; start: number; end: number } {
+		const hoveredToken = this.tokens.find(token => token.start <= index && token.end >= index);
+		if (!hoveredToken)
+			return {
+				detail: "No token found at this position",
+				start: index,
+				end: index
+			};
+
+		const tokenDetail = this.compiler.getTokenDetail(hoveredToken);
+		if (!tokenDetail)
+			return {
+				detail: "No detail information available for this token",
+				start: hoveredToken.start,
+				end: hoveredToken.end
+			};
+
+		return {
+			detail: `${tokenDetail.nameToken.value}: ${typeToStr(tokenDetail.typeRef)} (${tokenDetail.constructor.name})`,
+			start: hoveredToken.start,
+			end: hoveredToken.end
+		};
+	}
+
 	private buildTokenTypeRanges() {
 		walk(this.program, node => {
 			this.tokenTypeRanges.push(...this.getTokenTypeRangeFromNode(node));
 		});
 
 		// Add comment token ranges
-		this.linker.entryFile.getTokens().forEach(token => {
+		this.tokens.forEach(token => {
 			if (token.type != TokenType.Comment) return;
 
 			this.tokenTypeRanges.push({

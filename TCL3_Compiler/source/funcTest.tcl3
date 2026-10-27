@@ -1,49 +1,54 @@
+// EXPECT: 11
+// EXPECT: 41
+// EXPECT: 24
+// EXPECT: 1
+// EXPECT: 2
+
 struct Point {
 	x: int;
 	y: int;
 
-	fn "+"(other: Point): Point {
-		let result: Point = {x: this->x + other.x, y: this->y + other.y};
-		return result;
+	fn get_x(): int {
+		return this->x;
 	}
 
-	fn "+"(other: int): Point {
-		let result: Point = {x: this->x + other, y: this->y + other};
-		return result;
-	}
-
-	fn "+"(other: Point*): Point {
-		let result: Point = {x: this->x + other->x, y: this->y + other->y};
-		return result;
-	}
-
-	// ISS-006
-	fn "[]"(index: int): int {
-		if (index == 0) return this->x;
+	fn get_y(): int {
 		return this->y;
+	}
+
+	fn scale(factor: int): void {
+		this->x *= factor;
+		this->y *= factor;
 	}
 }
 
+// ISS-021
+struct First {
+	static fn value(): int {
+		return 1;
+	}
+}
+
+struct Second {
+	static fn value(): int {
+		return 2;
+	}
+}
+
+fn make_point(x: int, y: int): Point {
+	let p: Point = {x: x, y: y};
+	return p;
+}
+
 fn main(): void {
-	let a: Point = {x: 1, y: 2};
-	let b: Point = {x: 3, y: 4};
+	let points: Point[2] = {make_point(11, 12), make_point(31, 41)};
 
- 	let c: Point = a + b;
-	out c.x;
+	out points[0].get_x();
+	out points[1].get_y();
 
-	let d = a + 5;
-	out d.y;
+	points[0].scale(2);
+	out points[0].get_y();
 
-	let e: Point* = &a;
-	let f: Point = b + e;
-	out f.x;
-
-	out (a + b).x + 2;
-
-	let indexed: Point = {x: 8, y: 9};
-	out indexed[0];
-	out indexed[1];
-	// ISS-031
-	let inferredIndexResult = indexed[1];
-	out inferredIndexResult;
+	out First.value();
+	out Second.value();
 }

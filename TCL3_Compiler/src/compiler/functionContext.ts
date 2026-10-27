@@ -1,34 +1,47 @@
-import chalk from "chalk";
+import { v4 as uuidv4 } from "uuid";
 
 import { Register } from "../ir/ir.js";
 import { imm, IRBuilder, label, memReg, reg } from "../ir/irBuilder.js";
-import { ASTType, ASTTypeRef, FunctionDeclaration, FunctionTypeRef, ReturnStatement, VariableDeclaration } from "../parser/ast.js";
-import { mainFnName } from "../parser/tokenizer.js";
+import { ASTType, ASTTypeRef, FunctionDeclaration, FunctionTypeRef, Reference, ReturnStatement, VariableDeclaration } from "../parser/ast.js";
+import { mainFnName, Token } from "../parser/tokenizer.js";
 import { walk } from "../parser/walker.js";
-import { Compiler, FunctionCallInfo } from "./compiler.js";
+import { Compiler, FunctionCallInfo, returnPointerName, VariableDetailInformation } from "./compiler.js";
 import { typeToStr } from "./types.js";
+import { IType, Struct } from "./userTypes.js";
 
 interface Local {
 	type: ASTTypeRef;
 	stackOffset: number;
 	size: number;
+	refId: string;
+}
+
+type ForwardDeclaredLocal = Omit<Local, "stackOffset">;
+
+interface Resolvable {
+	type: Local["type"] | FunctionContext["type"] | ForwardDeclaredLocal["type"];
+	refId: Local["refId"] | FunctionContext["refId"] | ForwardDeclaredLocal["refId"];
 }
 
 let id = 0;
-class FunctionContext {
+class FunctionContext implements IType {
 	public readonly name: string;
+	public readonly nameToken: Token;
+	public readonly refId: string = uuidv4();
 	public type: FunctionTypeRef;
 	public get callTypeSignature(): string {
 		return this.type.parameters.map(param => typeToStr(param)).join(", ");
 	}
 	public readonly argSize: number;
+
 	public readonly isStatic: boolean;
+	public methodForStruct: Struct = null;
 
 	public readonly outLabel: string = null;
 	public readonly label: string = null;
 
 	private locals: Map<string, Local> = new Map();
-	private forwardDeclaredParameters: Map<string, Omit<Local, "stackOffset">> = new Map();
+	private forwardDeclaredParameters: Map<string, ForwardDeclaredLocal> = new Map();
 
 	private currentStackOffset: number = 0;
 
@@ -42,6 +55,7 @@ class FunctionContext {
 		// returnType: ASTTypeRef
 	) {
 		this.name = func.name;
+		this.nameToken = func.nameToken;
 		const fnId = id++;
 		this.label = this.name == mainFnName ? mainFnName : `${this.name}_${fnId}`;
 		this.outLabel = `${this.name}_out_${fnId}`;
@@ -106,6 +120,7 @@ class FunctionContext {
 
 		this.type = {
 			type: ASTType.FunctionTypeRef,
+			fnKeywordToken: this.func.nameToken,
 			parameters: this.func.parameters.map(param => param.type),
 			returnType: this.func.returnType
 		};
@@ -114,6 +129,7 @@ class FunctionContext {
 	private establishType() {
 		this.type = {
 			type: ASTType.FunctionTypeRef,
+			fnKeywordToken: this.func.nameToken,
 			parameters: this.func.parameters.map(param => param.type),
 			returnType: this.func.returnType
 		};
@@ -126,7 +142,7 @@ class FunctionContext {
 		// Add parameters as forward declared, however do not yet position them on the stack
 		// Positioning must wait until we know the return type size, as we may have a return pointer as the very first argument
 		this.func.parameters.forEach(param => {
-			this.forwardDeclaredParameters.set(param.name, { type: param.type, size: this.compiler.resolveTypeSize(param.type) });
+			this.forwardDeclaredParameters.set(param.name, { refId: uuidv4(), type: param.type, size: this.compiler.resolveTypeSize(param.type) });
 		});
 
 		const varDecls: VariableDeclaration[] = [];
@@ -159,7 +175,7 @@ class FunctionContext {
 	public defineLocalVariable(name: string, type: ASTTypeRef, preReservedStack: boolean) {
 		if (this.locals.has(name)) throw new Error(`Local variable '${name}' is already defined in function '${this.name}'.`);
 		const size = this.compiler.resolveTypeSize(type);
-		this.locals.set(name, { type, stackOffset: this.currentStackOffset, size });
+		this.locals.set(name, { refId: uuidv4(), type, stackOffset: this.currentStackOffset, size });
 		this.currentStackOffset += size;
 
 		if (!preReservedStack) {
@@ -171,8 +187,13 @@ class FunctionContext {
 	// A variable 'below' our fp
 	public defineArgumentVariable(name: string, type: ASTTypeRef, stackOffset: number) {
 		if (this.locals.has(name)) throw new Error(`Local variable '${name}' is already defined in function '${this.name}'.`);
+		const forwardDeclaredParam = this.forwardDeclaredParameters.get(name);
+		if (!forwardDeclaredParam && name != returnPointerName)
+			// return pointer isn't forward declared
+			throw new Error(`Attempt to define argument variable '${name}' that was not forward declared in function '${this.name}'.`);
+
 		const size = this.compiler.resolveTypeSize(type);
-		this.locals.set(name, { type, stackOffset, size });
+		this.locals.set(name, { refId: forwardDeclaredParam?.refId ?? uuidv4(), type, stackOffset, size });
 	}
 
 	// Reads variable 'name' onto the stack
@@ -205,7 +226,7 @@ class FunctionContext {
 		// Stack end state:
 		// Stack [x, x, a, b, x, x, x, a, b, _]
 		//     fp ^                       sp ^
-		// NOTE: If we want to then copy the struct off the stack via poping, we need to understand that
+		// NOTE: If we want to then copy the struct off the stack via popping, we need to understand that
 		//       the struct will be in reverse order
 		for (let i = 0; i < readSize; i++) {
 			// this.builder.add(reg(Register.fp), imm(local.stackOffset + i + offset), reg(Register.offset));
@@ -323,18 +344,44 @@ class FunctionContext {
 		}
 	}
 
-	public getTypeOfLocal(name: string): ASTTypeRef {
-		if (!this.isDefined(name)) throw new Error(`Local variable '${name}' is not defined in function '${this.name}'.`);
+	private resolveLocalForwardOrNonOverloadedFunction(name: string): Local | FunctionContext | ForwardDeclaredLocal {
+		if (this.locals.has(name)) return this.locals.get(name);
+		if (this.forwardDeclaredParameters.has(name)) return this.forwardDeclaredParameters.get(name);
 		if (this.compiler.functions.has(name)) {
 			const fns = this.compiler.functions.get(name);
-			if (fns.length > 1) throw new Error(`Unable to get type of function '${name}' due to being an overloaded function`);
-			return fns[0].type;
+			if (fns.length > 1) throw new Error(`Unable to resolve function '${name}' due to being an overloaded function`);
+			return fns[0];
 		}
-		return this.locals.get(name)?.type ?? this.forwardDeclaredParameters.get(name)?.type;
+
+		throw new Error(`Local variable '${name}' is not defined in function '${this.name}'.`);
+	}
+
+	public getTypeOfLocal(name: string): ASTTypeRef {
+		return this.resolveLocalForwardOrNonOverloadedFunction(name).type;
+	}
+
+	public isParameter(name: string): boolean {
+		return this.forwardDeclaredParameters.has(name);
 	}
 
 	public isDefined(name: string): boolean {
 		return this.locals.has(name) || this.forwardDeclaredParameters.has(name) || this.compiler.functions.has(name);
+	}
+
+	public getRefId(name: string): string {
+		return this.resolveLocalForwardOrNonOverloadedFunction(name).refId;
+	}
+
+	public getDetailInfoFromRef(ref: Reference): VariableDetailInformation {
+		if (!this.isDefined(ref.identifier)) throw new Error(`Local variable '${ref.identifier}' is not defined in function '${this.name}'.`);
+
+		return new VariableDetailInformation(
+			this.getRefId(ref.identifier),
+			ref.identifierToken,
+			this.getTypeOfLocal(ref.identifier),
+			this.isParameter(ref.identifier),
+			null
+		);
 	}
 
 	// Ensures the current frame has enough space to allow the return value to be written to the top of the stack
@@ -375,6 +422,10 @@ class FunctionContext {
 			argumentSize: this.argSize,
 			argumentCount: this.type.parameters.length
 		};
+	}
+
+	public get typeRef(): FunctionTypeRef {
+		return this.type;
 	}
 }
 

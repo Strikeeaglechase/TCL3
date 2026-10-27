@@ -11,6 +11,7 @@ import {
 	DidChangeTextDocumentParams,
 	DidOpenTextDocumentParams,
 	DocumentSelector,
+	HoverParams,
 	InitializeParams,
 	InitializeResult,
 	SemanticTokensParams,
@@ -40,7 +41,7 @@ const serverCapabilities: ServerCapabilities = {
 				SemanticTokenTypes.string,
 				SemanticTokenTypes.number
 			],
-			tokenModifiers: [SemanticTokenModifiers.declaration, SemanticTokenModifiers.definition, SemanticTokenModifiers.static]
+			tokenModifiers: Object.values(SemanticTokenModifiers)
 		},
 		full: true
 	},
@@ -59,6 +60,7 @@ const serverCapabilities: ServerCapabilities = {
 };
 
 const tokenTypeToIndex = (type: SemanticTokenTypes) => serverCapabilities.semanticTokensProvider.legend.tokenTypes.indexOf(type);
+const tokenModifierToBit = (modifier: SemanticTokenModifiers) => 1 << serverCapabilities.semanticTokensProvider.legend.tokenModifiers.indexOf(modifier);
 
 const cleanUri = (uri: string) => {
 	uri = uri.replace("%3A", ":");
@@ -131,7 +133,7 @@ class LSP {
 		this.registerMessageHandler("textDocument/semanticTokens/full", this.handleSemanticTokensRequest.bind(this));
 		// this.registerMessageHandler("textDocument/diagnostic", this.handleDiagnosticRequest.bind(this));
 		// this.registerMessageHandler("textDocument/completion", this.handleCompletionRequest.bind(this));
-		// this.registerMessageHandler("textDocument/hover", this.handleHoverRequest.bind(this));
+		this.registerMessageHandler("textDocument/hover", this.handleHoverRequest.bind(this));
 	}
 
 	private handleInit(message: RequestMessage, payload: InitializeParams) {
@@ -192,6 +194,20 @@ class LSP {
 		// console.log(response.data);
 
 		return response;
+	}
+
+	private handleHoverRequest(message: RequestMessage, payload: HoverParams) {
+		const uri = cleanUri(payload.textDocument.uri);
+		const file = this.files.get(uri);
+
+		if (!file) {
+			console.log(`Document ${uri} not found for handleHoverRequest`);
+			return null;
+		}
+
+		const info = file.getHoverInfo(payload.position);
+
+		return info;
 	}
 
 	public handleFileRead(filePath: string): string {
@@ -274,4 +290,4 @@ class LSP {
 const lsp = new LSP(8000);
 lsp.init();
 
-export { LSP, tokenTypeToIndex };
+export { LSP, tokenTypeToIndex, tokenModifierToBit };

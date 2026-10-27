@@ -94,7 +94,7 @@ class Tokenizer {
 			try {
 				tokens = this.readToken();
 			} catch (e) {
-				const error = new TokenizerError((e as Error).message, {
+				const error = new TokenizerError(e, {
 					startIndex: startPos,
 					endIndex: this.charStream.position,
 					fileIdentifier: this.fileIdentifier

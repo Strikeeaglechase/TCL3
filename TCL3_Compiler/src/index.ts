@@ -12,7 +12,7 @@ function linkCompileAndExecute(sourceFilePath: string) {
 	const linker = new Linker(sourceFilePath);
 	linker.enableDebug("../debug");
 	const astProgram = linker.link();
-	const compiler = new Compiler(astProgram);
+	const compiler = new Compiler(astProgram, true);
 	const irProgram = compiler.compile();
 	fs.writeFileSync("../debug/ir.txt", IRBuilder.getDebugText(irProgram, false));
 	const optimizer = new IROptimizer(irProgram);
