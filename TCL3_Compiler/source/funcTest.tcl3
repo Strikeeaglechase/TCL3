@@ -58,6 +58,6 @@ fn main(): void {
 	out points[0].get_y();
 
 
-	out First.value();
+	out First.valu2e();
 	out Second.value();
 }

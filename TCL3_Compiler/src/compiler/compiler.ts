@@ -39,11 +39,11 @@ import { FunctionContext } from "./functionContext.js";
 import { boolType, charType, intType, primitiveSizeMap, ptrOf, typeToStr, voidType } from "./types.js";
 import { Enum, IType, Struct } from "./userTypes.js";
 
-function referenceToString(ref: Reference): string {
+function referenceToString(ref: Reference, useTokenValues = false): string {
 	let result = "";
 	let current = ref;
 	while (true) {
-		result += current.identifier;
+		result += useTokenValues ? current.identifierToken.value : current.identifier;
 		if (current.offsetExpressions != null) {
 			current.offsetExpressions.forEach(offsetExpr => (result += `[${offsetExpr.type}]`));
 		}
@@ -175,6 +175,7 @@ class Compiler {
 			const existingDetail = this.tokenDetails.get(token);
 
 			if (existingDetail.constructor.name != detail.constructor.name) {
+				// These are runtime detail class names; neither class has a source token.
 				throw new Error(
 					`Token detail conflict for token "${token.value}" at ${token.start}. Existing detail is of type ${existingDetail.constructor.name}, new detail is of type ${detail.constructor.name}`
 				);
@@ -453,10 +454,10 @@ class Compiler {
 		if (!ref.child && ref.offsetExpressions == null) {
 			if (ref.dereferenceCount == 0) {
 				this.builder.comment(`Simple assignment to local variable: ${ref.identifier}`);
-				this.currentContext.writeVarFromStack(ref.identifier);
+				this.currentContext.writeVarFromStack(ref.identifier, ref.identifierToken);
 			} else {
 				this.builder.comment(`Assignment to pointer variable: ${ref.identifier} with deref count ${ref.dereferenceCount}`);
-				this.currentContext.useVariableAsPointerAndSetFromStack(ref.identifier, 0, ref.dereferenceCount);
+				this.currentContext.useVariableAsPointerAndSetFromStack(ref.identifier, ref.identifierToken, 0, ref.dereferenceCount);
 			}
 			return;
 		}
@@ -465,7 +466,7 @@ class Compiler {
 		const { offset, readType } = this.getReferenceOffsetWithoutDerefs(ref);
 		if (offset >= 0) {
 			this.builder.comment(`Simple struct assignment to local variable: ${ref.identifier} with offset ${offset}`);
-			this.currentContext.writeVarFromStack(ref.identifier, offset, this.resolveTypeSize(readType));
+			this.currentContext.writeVarFromStack(ref.identifier, ref.identifierToken, offset, this.resolveTypeSize(readType));
 			return;
 		}
 
@@ -487,7 +488,8 @@ class Compiler {
 	private handleOverloadedArrayIndexing(topLevelReference: Reference, tailReference: Reference, type: RawTypeRef, offsetExpression: AST) {
 		// Maybe it's a struct with an overload for the [] operator
 		const structDecl = this.structs.get(type.rawType);
-		if (!structDecl) throw new Error(`Type information for '${type.rawType}' is not available, cannot access field '${tailReference.identifier}'.`);
+		if (!structDecl)
+			throw new Error(`Type information for '${type.rawTypeToken.value}' is not available, cannot access field '${tailReference.identifierToken.value}'.`);
 
 		const argType = this.inferTypeFrom(offsetExpression);
 		const operatorMethod = structDecl.methods.get("[]");
@@ -523,13 +525,15 @@ class Compiler {
 
 	private getTypeOfOverloadedArrayIndex(type: RawTypeRef, offsetExpression: AST): ASTTypeRef {
 		const structDecl = this.structs.get(type.rawType);
-		if (!structDecl) throw new Error(`Type information for '${type.rawType}' is not available, cannot access field`);
+		if (!structDecl) throw new Error(`Type information for '${type.rawTypeToken.value}' is not available, cannot access field`);
 
 		const argType = this.inferTypeFrom(offsetExpression);
 		const operatorMethod = structDecl.methods.get("[]");
 		const matchingMethod = this.findFunctionMatchingArgumentList(operatorMethod, [ptrOf(type), argType]);
 		if (!matchingMethod)
-			throw new Error(`Struct type '${type.rawType}' does not have an operator overload for '[]' that matches the argument type '${typeToStr(argType)}'.`);
+			throw new Error(
+				`Struct type '${type.rawTypeToken.value}' does not have an operator overload for '[]' that matches the argument type '${typeToStr(argType)}'.`
+			);
 
 		return matchingMethod.typeRef.returnType;
 	}
@@ -537,7 +541,7 @@ class Compiler {
 	// TODO: Break this up into smaller functions
 	private resolveComplexReferenceAddressInR0(node: Reference) {
 		let curRef = node;
-		let currentType = this.currentContext.getTypeOfLocal(curRef.identifier);
+		let currentType = this.currentContext.getTypeOfLocal(curRef.identifier, curRef.identifierToken);
 
 		// Set r0 to pointer to the base of the reference
 		this.builder.comment(`Address of '${curRef.identifier}'`);
@@ -550,13 +554,16 @@ class Compiler {
 			// Evaluate the identifier offset
 			if (!top) {
 				if (currentType.type != ASTType.RawTypeRef)
-					throw new Error(`Attempt to access field '${curRef.identifier}' of a non-raw type '${typeToStr(currentType)}'.`);
+					throw new Error(`Attempt to access field '${curRef.identifierToken.value}' of a non-raw type '${typeToStr(currentType)}'.`);
 
 				const structDef = this.structs.get(currentType.rawType);
-				if (!structDef) throw new Error(`Type information for '${currentType.rawType}' is not available, cannot access field '${curRef.identifier}'.`);
+				if (!structDef)
+					throw new Error(
+						`Type information for '${currentType.rawTypeToken.value}' is not available, cannot access field '${curRef.identifierToken.value}'.`
+					);
 
 				const field = structDef.fields.get(curRef.identifier);
-				if (!field) throw new Error(`Struct type '${currentType.rawType}' does not have a field named '${curRef.identifier}'.`);
+				if (!field) throw new Error(`Struct type '${currentType.rawTypeToken.value}' does not have a field named '${curRef.identifierToken.value}'.`);
 
 				this.builder.comment(`Struct field ${curRef.identifier} at offset ${field.offset}`);
 				this.builder.add(reg(Register.r0), imm(field.offset), reg(Register.r0));
@@ -583,7 +590,7 @@ class Compiler {
 						currentType = this.handleOverloadedArrayIndexing(node, curRef, currentType, offsetExpr);
 						return;
 					} else if (currentType.type != ASTType.WrappedTypeRef)
-						throw new Error(`Attempt to index a non-pointer type '${typeToStr(currentType)}' for reference '${curRef.identifier}'.`);
+						throw new Error(`Attempt to index a non-pointer type '${typeToStr(currentType)}' for reference '${curRef.identifierToken.value}'.`);
 
 					// Perform dereference
 					this.builder.comment(`Deref for array`);
@@ -605,7 +612,7 @@ class Compiler {
 			// Must be done after offset (array) expressions
 			for (let i = 0; i < curRef.dereferenceCount; i++) {
 				if (currentType.type != ASTType.WrappedTypeRef)
-					throw new Error(`Attempt to dereference a non-pointer type '${typeToStr(currentType)}' for reference '${curRef.identifier}'.`);
+					throw new Error(`Attempt to dereference a non-pointer type '${typeToStr(currentType)}' for reference '${curRef.identifierToken.value}'.`);
 
 				this.builder.comment(`Deref for child ${curRef.identifier}`);
 				this.builder.move(memReg(Register.r0), reg(Register.r0)); // Dereference r0 to get the pointer to the next level
@@ -628,12 +635,12 @@ class Compiler {
 		if (!addressOf && !ref.child && ref.offsetExpressions == null) {
 			if (ref.dereferenceCount == 0) {
 				this.builder.comment(`Simple reference to local variable: ${ref.identifier}`);
-				this.currentContext.readVarToStack(ref.identifier);
+				this.currentContext.readVarToStack(ref.identifier, ref.identifierToken);
 
 				this.registerDetail(ref.identifierToken, this.currentContext.getDetailInfoFromRef(ref));
 			} else {
 				this.builder.comment(`Simple dereference of local variable: ${ref.identifier}`);
-				this.currentContext.useVariableAsPointerAndReadToStack(ref.identifier, ref.dereferenceCount);
+				this.currentContext.useVariableAsPointerAndReadToStack(ref.identifier, ref.identifierToken, ref.dereferenceCount);
 			}
 			return;
 		}
@@ -645,7 +652,7 @@ class Compiler {
 			this.registerDetail(ref.identifierToken, enumDecl);
 
 			const enumKey = enumDecl.variants.get(ref.child.identifier);
-			if (enumKey === undefined) throw new Error(`Enum '${ref.identifier}' does not have a variant named '${ref.child.identifier}'.`);
+			if (enumKey === undefined) throw new Error(`Enum '${ref.identifierToken.value}' does not have a variant named '${ref.child.identifierToken.value}'.`);
 
 			this.builder.push(imm(enumKey.value));
 
@@ -658,7 +665,7 @@ class Compiler {
 		const { offset, readType } = this.getReferenceOffsetWithoutDerefs(ref);
 		if (!addressOf && offset >= 0) {
 			this.builder.comment(`Simple struct reference to local variable: ${ref.identifier} with offset ${offset}`);
-			this.currentContext.readVarToStack(ref.identifier, offset, this.resolveTypeSize(readType));
+			this.currentContext.readVarToStack(ref.identifier, ref.identifierToken, offset, this.resolveTypeSize(readType));
 			return;
 		}
 
@@ -690,17 +697,17 @@ class Compiler {
 			this.registerDetail(node.identifierToken, this.currentContext.getDetailInfoFromRef(node));
 
 			if (node.dereferenceCount > 0) {
-				let curType = this.currentContext.getTypeOfLocal(node.identifier);
+				let curType = this.currentContext.getTypeOfLocal(node.identifier, node.identifierToken);
 
 				for (let i = 0; i < node.dereferenceCount; i++) {
 					if (curType.type != ASTType.WrappedTypeRef)
-						throw new Error(`Attempt to dereference a non-pointer type '${typeToStr(curType)}' for reference '${node.identifier}'.`);
+						throw new Error(`Attempt to dereference a non-pointer type '${typeToStr(curType)}' for reference '${node.identifierToken.value}'.`);
 					curType = curType.inner;
 				}
 
 				return { type: curType, isMethod: false };
 			} else {
-				const localType = this.currentContext.getTypeOfLocal(node.identifier);
+				const localType = this.currentContext.getTypeOfLocal(node.identifier, node.identifierToken);
 				return { type: localType, isMethod: false };
 			}
 		}
@@ -710,7 +717,7 @@ class Compiler {
 			this.registerDetail(node.identifierToken, enumDecl);
 
 			if (!enumDecl.variants.has(node.child.identifier))
-				throw new Error(`Enum '${node.identifier}' does not have a variant named '${node.child.identifier}'.`);
+				throw new Error(`Enum '${node.identifierToken.value}' does not have a variant named '${node.child.identifierToken.value}'.`);
 
 			const varDetail = new VariableDetailInformation(
 				enumDecl.variants.get(node.child.identifier).refId,
@@ -726,17 +733,22 @@ class Compiler {
 		if (this.structs.has(node.identifier)) {
 			const structDecl = this.structs.get(node.identifier);
 			if (!structDecl.methods.has(node.child.identifier))
-				throw new Error(`Struct type '${node.identifier}' does not have a method named '${node.child.identifier}'.`);
+				throw new Error(`Struct type '${node.identifierToken.value}' does not have a method named '${node.child.identifierToken.value}'.`);
 
 			this.registerDetail(node.identifierToken, structDecl);
 
 			const fnList = structDecl.methods.get(node.child.identifier);
-			if (fnList == null) throw new Error(`Struct type '${node.identifier}' does not have a method named '${node.child.identifier}'.`);
+			if (fnList == null) throw new Error(`Struct type '${node.identifierToken.value}' does not have a method named '${node.child.identifierToken.value}'.`);
 			if (fnList.length > 1)
-				throw new Error(`Static method cannot be overloaded, struct type '${node.identifier}' has multiple methods named '${node.child.identifier}'.`);
+				throw new Error(
+					`Static method cannot be overloaded, struct type '${node.identifierToken.value}' has multiple methods named '${node.child.identifierToken.value}'.`
+				);
 
 			const fn = fnList[0];
-			if (!fn.isStatic) throw new Error(`Static method expected, but method '${node.child.identifier}' of struct type '${node.identifier}' is not static.`);
+			if (!fn.isStatic)
+				throw new Error(
+					`Static method expected, but method '${node.child.identifierToken.value}' of struct type '${node.identifierToken.value}' is not static.`
+				);
 
 			const varDetail = new VariableDetailInformation(fn.refId, node.child.identifierToken, fn.typeRef, false, null);
 			this.registerDetail(node.child.identifierToken, varDetail);
@@ -749,7 +761,7 @@ class Compiler {
 
 		let curRef = node;
 		if (suppressUndefinedVariableError && !this.currentContext.isDefined(curRef.identifier)) return null;
-		let currentType = this.currentContext.getTypeOfLocal(curRef.identifier);
+		let currentType = this.currentContext.getTypeOfLocal(curRef.identifier, curRef.identifierToken);
 
 		this.registerDetail(curRef.identifierToken, this.currentContext.getDetailInfoFromRef(curRef));
 
@@ -758,15 +770,18 @@ class Compiler {
 			// Evaluate the identifier offset
 			if (!top) {
 				if (currentType.type != ASTType.RawTypeRef)
-					throw new Error(`Attempt to access field '${curRef.identifier}' of a non-raw type '${typeToStr(currentType)}'.`);
+					throw new Error(`Attempt to access field '${curRef.identifierToken.value}' of a non-raw type '${typeToStr(currentType)}'.`);
 
 				const structDef = this.structs.get(currentType.rawType);
-				if (!structDef) throw new Error(`Type information for '${currentType.rawType}' is not available, cannot access field '${curRef.identifier}'.`);
+				if (!structDef)
+					throw new Error(
+						`Type information for '${currentType.rawTypeToken.value}' is not available, cannot access field '${curRef.identifierToken.value}'.`
+					);
 
 				const field = structDef.fields.get(curRef.identifier);
 				if (!field) {
 					const fn = structDef.methods.has(curRef.identifier);
-					if (!fn) throw new Error(`Struct type '${currentType.rawType}' does not have a field named '${curRef.identifier}'.`);
+					if (!fn) throw new Error(`Struct type '${currentType.rawTypeToken.value}' does not have a field named '${curRef.identifierToken.value}'.`);
 
 					return { type: structDef.methods.get(curRef.identifier)[0].typeRef, isMethod: true, methodStructDecl: structDef };
 				}
@@ -791,7 +806,7 @@ class Compiler {
 						currentType = this.getTypeOfOverloadedArrayIndex(currentType, offsetExpr);
 						return;
 					} else if (currentType.type != ASTType.WrappedTypeRef)
-						throw new Error(`Attempt to index a non-pointer type '${typeToStr(currentType)}' for reference '${curRef.identifier}'.`);
+						throw new Error(`Attempt to index a non-pointer type '${typeToStr(currentType)}' for reference '${curRef.identifierToken.value}'.`);
 
 					currentType = currentType.inner;
 				});
@@ -799,7 +814,7 @@ class Compiler {
 
 			for (let i = 0; i < curRef.dereferenceCount; i++) {
 				if (currentType.type != ASTType.WrappedTypeRef)
-					throw new Error(`Attempt to dereference a non-pointer type '${typeToStr(currentType)}' for reference '${curRef.identifier}'.`);
+					throw new Error(`Attempt to dereference a non-pointer type '${typeToStr(currentType)}' for reference '${curRef.identifierToken.value}'.`);
 
 				currentType = currentType.inner;
 			}
@@ -824,23 +839,26 @@ class Compiler {
 			if (!curRef.child) return { offset, readType: currentType };
 
 			if (currentType == null) {
-				const varType = this.currentContext.getTypeOfLocal(curRef.identifier);
+				const varType = this.currentContext.getTypeOfLocal(curRef.identifier, curRef.identifierToken);
 				currentType = varType;
 
 				this.registerDetail(curRef.identifierToken, this.currentContext.getDetailInfoFromRef(curRef));
 			}
 
 			if (currentType.type == ASTType.WrappedTypeRef)
-				throw new Error(`Attempt to access field '${curRef.child.identifier}' of a wrapped type reference '${curRef.identifier}', must dereference.`);
+				throw new Error(
+					`Attempt to access field '${curRef.child.identifierToken.value}' of a wrapped type reference '${curRef.identifierToken.value}', must dereference.`
+				);
 			if (currentType.type == ASTType.FunctionTypeRef) throw new Error(`Attempt to access field of a function type`);
 
 			const structDef = this.structs.get(currentType.rawType);
-			if (!structDef) throw new Error(`Attempt to access field '${curRef.child.identifier}' of a non-struct type '${currentType.rawType}'.`);
+			if (!structDef)
+				throw new Error(`Attempt to access field '${curRef.child.identifierToken.value}' of a non-struct type '${currentType.rawTypeToken.value}'.`);
 
 			const field = structDef.fields.get(curRef.child.identifier);
 			if (!field) {
 				const isFn = structDef.methods.has(curRef.child.identifier);
-				if (!isFn) throw new Error(`Struct type '${currentType.rawType}' does not have a field named '${curRef.child.identifier}'.`);
+				if (!isFn) throw new Error(`Struct type '${currentType.rawTypeToken.value}' does not have a field named '${curRef.child.identifierToken.value}'.`);
 
 				// Valid case (method call), however, however no offset exists, caller of getReferenceOffsetWithoutDerefs will handle this case
 				return { offset: -1, readType: null };
@@ -889,13 +907,17 @@ class Compiler {
 				const finalLeftType = needsSwap ? rightType : leftType;
 
 				if (finalLeftType.type != ASTType.RawTypeRef)
-					throw new Error(`Attempt to perform '${node.operator}' operator on non-raw type '${typeToStr(finalLeftType)}'`);
+					throw new Error(`Attempt to perform '${node.operatorToken.value}' operator on non-raw type '${typeToStr(finalLeftType)}'`);
 
 				const structDef = this.structs.get(finalLeftType.rawType);
-				if (!structDef) throw new Error(`Type information for '${finalLeftType.rawType}' is not available, cannot perform operator '${node.operator}'.`);
+				if (!structDef)
+					throw new Error(
+						`Type information for '${finalLeftType.rawTypeToken.value}' is not available, cannot perform operator '${node.operatorToken.value}'.`
+					);
 
 				const overloadMethods = structDef.methods.get(node.operator);
-				if (!overloadMethods) throw new Error(`Struct type '${finalLeftType.rawType}' does not have an overload for operator '${node.operator}'.`);
+				if (!overloadMethods)
+					throw new Error(`Struct type '${finalLeftType.rawTypeToken.value}' does not have an overload for operator '${node.operatorToken.value}'.`);
 
 				// LHS is the struct, first argument will be the this pointer
 				const argumentList = [ptrOf(opArgs[0]), opArgs[1]];
@@ -962,7 +984,7 @@ class Compiler {
 				this.builder.gte(reg(Register.r1), reg(Register.r0), reg(Register.r0));
 				break;
 			default:
-				throw new Error(`Unsupported binary operator: ${binaryExpr.operator}`);
+				throw new Error(`Unsupported binary operator: ${binaryExpr.operatorToken.value}`);
 		}
 
 		this.builder.push(reg(Register.r0));
@@ -1102,7 +1124,7 @@ class Compiler {
 
 		if (varDecl.variableType) this.declareDetailForTypeRef(varDecl.variableType);
 		const type = varDecl.variableType ?? this.inferTypeFrom(varDecl.initializer);
-		if (type == null) throw new Error(`Cannot infer type for variable '${varDecl.name}', and no type was provided.`);
+		if (type == null) throw new Error(`Cannot infer type for variable '${varDecl.nameToken.value}', and no type was provided.`);
 
 		this.builder.comment(`Variable declaration: '${varDecl.name}' type: ${typeToStr(type)}`);
 
@@ -1118,7 +1140,7 @@ class Compiler {
 			this.builder.pop(reg(Register.r0));
 			this.builder.mul(reg(Register.r0), imm(this.resolveTypeSize(type.inner)), reg(Register.r0)); // Multiply by the size of the type
 			this.builder.malloc(reg(Register.r0), reg(Register.r1));
-			this.currentContext.setVarFromRegister(varDecl.name, Register.r1); // Set the array to point to the allocated memory
+			this.currentContext.setVarFromRegister(varDecl.name, varDecl.nameToken, Register.r1); // Set the array to point to the allocated memory
 		}
 
 		if (varDecl.initializer.type == ASTType.Initializer) {
@@ -1127,17 +1149,17 @@ class Compiler {
 					this.compileAst(initer.expression);
 					this.builder.pop(reg(Register.r0));
 					if (type.type != ASTType.RawTypeRef) throw new Error(`Struct field initializer is only supported for raw type references.`);
-					const structType = type.rawType;
-					const offset = this.getOffsetOfSimpleStructField(structType, initer.name);
-					this.currentContext.setVarFromRegister(varDecl.name, Register.r0, offset);
+					const offset = this.getOffsetOfSimpleStructField(type, initer.name, initer.nameToken);
+					this.currentContext.setVarFromRegister(varDecl.name, varDecl.nameToken, Register.r0, offset);
 				} else {
 					if (type.type != ASTType.WrappedTypeRef) throw new Error(`Array initializer provided for non-pointer type '${typeToStr(type)}'.`);
-					if (!varDecl.arraySizeExpression) throw new Error(`Array initializer provided without an array size expression for variable '${varDecl.name}'.`);
+					if (!varDecl.arraySizeExpression)
+						throw new Error(`Array initializer provided without an array size expression for variable '${varDecl.nameToken.value}'.`);
 
 					const offset = index * this.resolveTypeSize(type.inner);
 					this.builder.comment(`Array init for ${varDecl.name}[${index}] at offset ${offset}`);
 					this.compileAst(initer);
-					this.currentContext.useVariableAsPointerAndSetFromStack(varDecl.name, offset, 1); // Use the pointer to the array and set the value from the stack
+					this.currentContext.useVariableAsPointerAndSetFromStack(varDecl.name, varDecl.nameToken, offset, 1); // Use the pointer to the array and set the value from the stack
 					// this.builder.pop(reg(Register.r0));
 					// this.currentContext.setVarFromRegister(varDecl.name, Register.r0, index);
 				}
@@ -1145,27 +1167,30 @@ class Compiler {
 		} else {
 			const expressionType = this.inferTypeFrom(varDecl.initializer);
 			if (expressionType == null) {
-				throw new Error(`Could not infer type for variable declaration initializer: ${varDecl.name}, expression type unknown: ${varDecl.initializer.type}`);
+				throw new Error(
+					`Could not infer type for variable declaration initializer: ${varDecl.nameToken.value}, expression type unknown: ${varDecl.initializer.type}`
+				);
 			} else {
 				if (!this.areTypesEqual(expressionType, type)) {
 					throw new Error(
-						`Type mismatch in variable declaration: variable '${varDecl.name}' type '${typeToStr(type)}' != initializer expression type '${typeToStr(expressionType)}'`
+						`Type mismatch in variable declaration: variable '${varDecl.nameToken.value}' type '${typeToStr(type)}' != initializer expression type '${typeToStr(expressionType)}'`
 					);
 				}
 			}
 			this.compileAst(varDecl.initializer);
-			this.currentContext.writeVarFromStack(varDecl.name);
+			this.currentContext.writeVarFromStack(varDecl.name, varDecl.nameToken);
 		}
 	}
 
-	private getOffsetOfSimpleStructField(structType: string, fieldName: string): number {
-		const struct = this.structs.get(structType);
-		if (!struct) throw new Error(`Struct type '${structType}' is not defined.`);
+	private getOffsetOfSimpleStructField(structType: RawTypeRef, fieldName: string, fieldToken: Token): number {
+		const struct = this.structs.get(structType.rawType);
+		if (!struct) throw new Error(`Struct type '${structType.rawTypeToken.value}' is not defined.`);
 		const field = struct.fields.get(fieldName);
-		if (!field) throw new Error(`Struct type '${structType}' does not have a field named '${fieldName}'.`);
+		if (!field) throw new Error(`Struct type '${structType.rawTypeToken.value}' does not have a field named '${fieldToken.value}'.`);
 
 		const fieldSize = this.resolveTypeSize(field.type);
-		if (fieldSize > 1) throw new Error(`Struct field '${fieldName}' of struct type '${structType}' is not a simple type, cannot get offset.`);
+		if (fieldSize > 1)
+			throw new Error(`Struct field '${fieldToken.value}' of struct type '${structType.rawTypeToken.value}' is not a simple type, cannot get offset.`);
 
 		return field.offset;
 	}
@@ -1222,7 +1247,7 @@ class Compiler {
 
 		if (!this.functions.has(node.name)) this.functions.set(node.name, []);
 		const existingTypeSig = this.functions.get(node.name).find(f => this.areTypesEqual(f.typeRef, funcCtx.typeRef, true));
-		if (existingTypeSig) throw new Error(`Function '${node.name}' with the same type signature already exists.`);
+		if (existingTypeSig) throw new Error(`Function '${node.nameToken.value}' with the same type signature already exists.`);
 
 		this.functions.get(node.name).push(funcCtx);
 	}
@@ -1255,16 +1280,16 @@ class Compiler {
 
 		// There will be a return address as the first argument
 		if (returnSize > 1) {
-			funcCtx.defineArgumentVariable(returnPointerName, ptrOf(funcCtx.typeRef.returnType), argStackOffset - 1);
+			funcCtx.defineArgumentVariable(returnPointerName, null, ptrOf(funcCtx.typeRef.returnType), argStackOffset - 1);
 		}
 
 		// this.builder.commentln(`Arg setup fn "${node.name}":`);
 		node.parameters.forEach(param => {
-			funcCtx.defineArgumentVariable(param.name, param.type, argStackOffset);
+			funcCtx.defineArgumentVariable(param.name, param.nameToken, param.type, argStackOffset);
 			argStackOffset += this.resolveTypeSize(param.type);
 
 			this.declareDetailForTypeRef(param.type);
-			const varDetail = new VariableDetailInformation(funcCtx.getRefId(param.name), param.nameToken, param.type, true, null);
+			const varDetail = new VariableDetailInformation(funcCtx.getRefId(param.name, param.nameToken), param.nameToken, param.type, true, null);
 			this.registerDetail(param.nameToken, varDetail);
 		});
 
@@ -1283,7 +1308,7 @@ class Compiler {
 		this.builder.commentln(`Function epilogue fn "${node.name}":`);
 		// Copy return value to wherever the caller expects it
 		if (returnSize > 1) {
-			funcCtx.readVarToRegister(returnPointerName, Register.r0);
+			funcCtx.readVarToRegister(returnPointerName, null, Register.r0);
 			for (let i = 0; i < returnSize; i++) {
 				this.builder.move(memReg(Register.sp, -returnSize + i), memReg(Register.r0, i));
 			}
@@ -1318,12 +1343,12 @@ class Compiler {
 		};
 
 		if (fnCallType.parameters.some(param => param == null))
-			throw new Error(`Cannot infer types for all parameters of function call to ${call.reference.identifier}.`);
+			throw new Error(`Cannot infer types for all parameters of function call to ${call.reference.identifierToken.value}.`);
 
 		const matchingFunc = funcDecls.find(f => this.areTypesEqual(f.typeRef, fnCallType, true));
 		if (!matchingFunc) {
 			throw new Error(
-				`No matching function found for call to ${call.reference.identifier} with parameter types (${fnCallType.parameters.map(p => typeToStr(p)).join(", ")}).`
+				`No matching function found for call to ${call.reference.identifierToken.value} with parameter types (${fnCallType.parameters.map(p => typeToStr(p)).join(", ")}).`
 			);
 		}
 
@@ -1343,7 +1368,7 @@ class Compiler {
 			if (funcDecl) return funcDecl.typeRef.returnType;
 
 			if (this.currentContext.isDefined(call.reference.identifier)) {
-				const callInfo = this.currentContext.createCallInfoForLocal(call.reference.identifier);
+				const callInfo = this.currentContext.createCallInfoForLocal(call.reference.identifier, call.reference.identifierToken);
 				return callInfo.returnType;
 			}
 
@@ -1353,12 +1378,12 @@ class Compiler {
 				return callInfo.returnType;
 			}
 
-			throw new Error(`Attempt to call ${call.reference.identifier} which is not defined`);
+			throw new Error(`Attempt to call ${call.reference.identifierToken.value} which is not defined`);
 		}
 
 		const fnType = this.getFinalTypeOfReference(call.reference).type;
 		if (fnType.type !== ASTType.FunctionTypeRef)
-			throw new Error(`Attempt to call a non-function type '${typeToStr(fnType)}' for reference '${referenceToString(call.reference)}'.`);
+			throw new Error(`Attempt to call a non-function type '${typeToStr(fnType)}' for reference '${referenceToString(call.reference, true)}'.`);
 
 		return fnType.returnType;
 	}
@@ -1377,14 +1402,14 @@ class Compiler {
 			if (funcDecls != null) {
 				const argumentList = node.arguments.map(arg => this.inferTypeFrom(arg));
 				const matchingFunc = this.findFunctionMatchingArgumentList(funcDecls, argumentList);
-				this.callFunction(matchingFunc.name, matchingFunc.getCallInfo(), node);
+				this.callFunction(matchingFunc.name, matchingFunc.getCallInfo(), node, null, node.reference.identifierToken);
 				this.registerDetail(node.reference.identifierToken, matchingFunc);
 				return;
 			}
 
 			if (this.currentContext.isDefined(node.reference.identifier)) {
-				const callInfo = this.currentContext.createCallInfoForLocal(node.reference.identifier);
-				this.callFunction(node.reference.identifier, callInfo, node);
+				const callInfo = this.currentContext.createCallInfoForLocal(node.reference.identifier, node.reference.identifierToken);
+				this.callFunction(node.reference.identifier, callInfo, node, null, node.reference.identifierToken);
 
 				this.registerDetail(node.reference.identifierToken, this.currentContext.getDetailInfoFromRef(node.reference));
 
@@ -1393,36 +1418,46 @@ class Compiler {
 
 			// Recursive call?
 			if (this.currentContext.name == node.reference.identifier) {
-				this.callFunction(node.reference.identifier, this.currentContext.getCallInfo(), node);
+				this.callFunction(node.reference.identifier, this.currentContext.getCallInfo(), node, null, node.reference.identifierToken);
 				this.registerDetail(node.reference.identifierToken, this.currentContext);
 				return;
 			}
 
-			throw new Error(`Attempt to call ${node.reference.identifier} which is not defined`);
+			throw new Error(`Attempt to call ${node.reference.identifierToken.value} which is not defined`);
 		} else {
 			// Static method call?
 			if (this.structs.has(node.reference.identifier)) {
 				const structDecl = this.structs.get(node.reference.identifier);
 				if (!structDecl.methods.has(node.reference.child.identifier))
-					throw new Error(`Struct type '${node.reference.identifier}' does not have a method named '${node.reference.child.identifier}'.`);
+					throw new Error(
+						`Struct type '${node.reference.identifierToken.value}' does not have a method named '${node.reference.child.identifierToken.value}'.`
+					);
 
 				this.registerDetail(node.reference.identifierToken, structDecl);
 
 				const fnList = structDecl.methods.get(node.reference.child.identifier);
 				if (fnList == null)
-					throw new Error(`Struct type '${node.reference.identifier}' does not have a method named '${node.reference.child.identifier}'.`);
+					throw new Error(
+						`Struct type '${node.reference.identifierToken.value}' does not have a method named '${node.reference.child.identifierToken.value}'.`
+					);
 				if (fnList.length > 1)
 					throw new Error(
-						`Static method cannot be overloaded, struct type '${node.reference.identifier}' has multiple methods named '${node.reference.child.identifier}'.`
+						`Static method cannot be overloaded, struct type '${node.reference.identifierToken.value}' has multiple methods named '${node.reference.child.identifierToken.value}'.`
 					);
 
 				const fn = fnList[0];
 				if (!fn.isStatic)
 					throw new Error(
-						`Static method expected, but method '${node.reference.child.identifier}' of struct type '${node.reference.identifier}' is not static.`
+						`Static method expected, but method '${node.reference.child.identifierToken.value}' of struct type '${node.reference.identifierToken.value}' is not static.`
 					);
 
-				this.callFunction(`${node.reference.identifier}_${node.reference.child.identifier}`, fn.getCallInfo(), node);
+				this.callFunction(
+					`${node.reference.identifier}_${node.reference.child.identifier}`,
+					fn.getCallInfo(),
+					node,
+					null,
+					node.reference.child.identifierToken
+				);
 
 				const varDetail = new VariableDetailInformation(fn.refId, node.reference.child.identifierToken, fn.typeRef, false, null);
 				this.registerDetail(node.reference.child.identifierToken, varDetail);
@@ -1469,7 +1504,7 @@ class Compiler {
 	private callFunctionViaComplexReference(call: FunctionCall) {
 		const { type, isMethod, methodStructDecl } = this.getFinalTypeOfReference(call.reference);
 		if (type.type !== ASTType.FunctionTypeRef)
-			throw new Error(`Attempt to call a non-function type '${typeToStr(type)}' for reference '${referenceToString(call.reference)}'.`);
+			throw new Error(`Attempt to call a non-function type '${typeToStr(type)}' for reference '${referenceToString(call.reference, true)}'.`);
 
 		if (isMethod) {
 			// Remove the function name from reference chain
@@ -1484,7 +1519,7 @@ class Compiler {
 		if (returnSize > 1) {
 			// Have to create a return variable and pass a pointer to it for the return function
 			returnVarName = `__dynCall_return_${id++}`;
-			this.currentContext.defineLocalVariable(returnVarName, type.returnType, false);
+			this.currentContext.defineLocalVariable(returnVarName, null, type.returnType, false);
 			this.currentContext.pushAddressOfLocal(returnVarName); // Return address will be arg0
 		}
 
@@ -1497,7 +1532,7 @@ class Compiler {
 		call.arguments.forEach((arg, idx) => {
 			if (!this.areTypesEqual(this.inferTypeFrom(arg), type.parameters[idx])) {
 				throw new Error(
-					`Argument type mismatch for argument ${idx} of function call to ${referenceToString(call.reference)}. Expected ${typeToStr(type.parameters[idx])}, got ${typeToStr(this.inferTypeFrom(arg))}`
+					`Argument type mismatch for argument ${idx} of function call to ${referenceToString(call.reference, true)}. Expected ${typeToStr(type.parameters[idx])}, got ${typeToStr(this.inferTypeFrom(arg))}`
 				);
 			}
 			this.compileAst(arg);
@@ -1505,7 +1540,7 @@ class Compiler {
 
 		if (call.arguments.length != type.parameters.length) {
 			throw new Error(
-				`Function call to ${referenceToString(call.reference)} expects ${type.parameters.length} arguments, but got ${call.arguments.length}.`
+				`Function call to ${referenceToString(call.reference, true)} expects ${type.parameters.length} arguments, but got ${call.arguments.length}.`
 			);
 		}
 
@@ -1521,7 +1556,7 @@ class Compiler {
 		this.builder.sub(reg(Register.sp), imm(argumentSize + 1), reg(Register.sp));
 
 		if (returnSize == 1) this.builder.push(reg(Register.funcRet));
-		else if (returnSize > 1) this.currentContext.readVarToStack(returnVarName);
+		else if (returnSize > 1) this.currentContext.readVarToStack(returnVarName, null);
 	}
 
 	private callMethod(struct: Struct, methodName: string, call: FunctionCall, callToken: Token) {
@@ -1535,11 +1570,11 @@ class Compiler {
 
 		if (callToken) this.registerDetail(callToken, matchingMethod);
 
-		return this.callFunction(debugName, matchingMethod.getCallInfo(), call, call.reference);
+		return this.callFunction(debugName, matchingMethod.getCallInfo(), call, call.reference, callToken ?? matchingMethod.nameToken);
 	}
 
 	// Name is only for debug info/symbols
-	private callFunction(name: string, funcInfo: FunctionCallInfo, call: FunctionCall, thisArgRef: Reference = null) {
+	private callFunction(name: string, funcInfo: FunctionCallInfo, call: FunctionCall, thisArgRef: Reference = null, nameToken: Token = null) {
 		this.builder.commentln(`Calling ${name}`);
 
 		const returnSize = this.resolveTypeSize(funcInfo.returnType);
@@ -1547,7 +1582,7 @@ class Compiler {
 		if (returnSize > 1) {
 			// Have to create a return variable and pass a pointer to it for the return function
 			returnVarName = `__${name}_return_${id++}`;
-			this.currentContext.defineLocalVariable(returnVarName, funcInfo.returnType, false);
+			this.currentContext.defineLocalVariable(returnVarName, null, funcInfo.returnType, false);
 			this.currentContext.pushAddressOfLocal(returnVarName); // Return address will be arg0
 		}
 
@@ -1561,7 +1596,7 @@ class Compiler {
 
 		const argumentCount = thisArgRef ? call.arguments.length + 1 : call.arguments.length;
 		if (argumentCount != funcInfo.argumentCount) {
-			throw new Error(`Function ${name} expects ${funcInfo.argumentCount} arguments, but got ${argumentCount}.`);
+			throw new Error(`Function ${nameToken.value} expects ${funcInfo.argumentCount} arguments, but got ${argumentCount}.`);
 		}
 
 		this.builder.comment(`Push return address`);
@@ -1578,7 +1613,7 @@ class Compiler {
 		// If the function returns a single value, we store it in funcRet register
 		// Push that value onto stack so whatever expression is expecting it may use it
 		if (returnSize == 1) this.builder.push(reg(Register.funcRet));
-		else if (returnSize > 1) this.currentContext.readVarToStack(returnVarName);
+		else if (returnSize > 1) this.currentContext.readVarToStack(returnVarName, null);
 
 		return returnSize;
 	}
@@ -1589,7 +1624,7 @@ class Compiler {
 		if (returnSize > 1) {
 			// Have to create a return variable and pass a pointer to it for the return function
 			returnVarName = `__${builtin.name}_return_${id++}`;
-			this.currentContext.defineLocalVariable(returnVarName, builtin.returnType, false);
+			this.currentContext.defineLocalVariable(returnVarName, null, builtin.returnType, false);
 			this.currentContext.pushAddressOfLocal(returnVarName); // Return address will be arg0
 		}
 
@@ -1597,7 +1632,7 @@ class Compiler {
 		builtin.handleCall.call(this, call);
 
 		if (returnSize == 1) this.builder.push(reg(Register.funcRet));
-		else if (returnSize > 1) this.currentContext.readVarToStack(returnVarName);
+		else if (returnSize > 1) this.currentContext.readVarToStack(returnVarName, null);
 	}
 }
 

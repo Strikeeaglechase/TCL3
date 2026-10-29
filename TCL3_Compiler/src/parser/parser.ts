@@ -383,7 +383,7 @@ class Parser {
 		if (nameToken.type == TokenType.LiteralString) {
 			const operator = nameToken.value;
 			if (!allowedOperatorOverloads.includes(operator)) {
-				throw new Error(`Operator ${operator} is not allowed to be overloaded`);
+				throw new Error(`Operator ${nameToken.value} is not allowed to be overloaded`);
 			}
 
 			name = operator;

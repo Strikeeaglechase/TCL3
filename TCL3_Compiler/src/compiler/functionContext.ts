@@ -74,7 +74,9 @@ class FunctionContext implements IType {
 
 		if (returns.length == 0) {
 			if (this.definition.returnType.type != ASTType.RawTypeRef || this.definition.returnType.rawType != "void") {
-				throw new Error(`Function '${this.name}' has no return statements, but has a declared return type of '${typeToStr(this.definition.returnType)}'.`);
+				throw new Error(
+					`Function '${this.nameToken.value}' has no return statements, but has a declared return type of '${typeToStr(this.definition.returnType)}'.`
+				);
 			}
 
 			return;
@@ -84,7 +86,7 @@ class FunctionContext implements IType {
 		if (retTypes.some(t => t == null)) {
 			// console.log(chalk.yellow(`Function '${this.name}' has a return statement with an expression that could not be type checked.`));
 			// return;
-			throw new Error(`Function '${this.name}' has a return statement with an expression that could not be type checked.`);
+			throw new Error(`Function '${this.nameToken.value}' has a return statement with an expression that could not be type checked.`);
 		}
 
 		const firstRetType = retTypes[0];
@@ -93,7 +95,7 @@ class FunctionContext implements IType {
 		} else {
 			if (!this.compiler.areTypesEqual(firstRetType, this.definition.returnType)) {
 				throw new Error(
-					`Function '${this.name}' has a return statement with type '${typeToStr(firstRetType)}' that does not match the declared return type '${typeToStr(this.definition.returnType)}'.`
+					`Function '${this.nameToken.value}' has a return statement with type '${typeToStr(firstRetType)}' that does not match the declared return type '${typeToStr(this.definition.returnType)}'.`
 				);
 			}
 		}
@@ -101,7 +103,7 @@ class FunctionContext implements IType {
 		const notMatchingType = retTypes.find(t => !this.compiler.areTypesEqual(t, this.definition.returnType));
 		if (notMatchingType) {
 			throw new Error(
-				`Function '${this.name}' has a return statement with type '${typeToStr(notMatchingType)}' that does not match the declared return type '${typeToStr(this.definition.returnType)}'.`
+				`Function '${this.nameToken.value}' has a return statement with type '${typeToStr(notMatchingType)}' that does not match the declared return type '${typeToStr(this.definition.returnType)}'.`
 			);
 		}
 	}
@@ -134,8 +136,9 @@ class FunctionContext implements IType {
 			returnType: this.definition.returnType
 		};
 
-		if (this.type.returnType == null) throw new Error(`Function '${this.name}' has a return type that could not be resolved.`);
-		if (this.type.parameters.some(param => param == null)) throw new Error(`Function '${this.name}' has a parameter type that could not be resolved.`);
+		if (this.type.returnType == null) throw new Error(`Function '${this.nameToken.value}' has a return type that could not be resolved.`);
+		if (this.type.parameters.some(param => param == null))
+			throw new Error(`Function '${this.nameToken.value}' has a parameter type that could not be resolved.`);
 	}
 
 	private forwardDeclareVariables() {
@@ -151,7 +154,7 @@ class FunctionContext implements IType {
 
 			// Concrete type, safe to immediately define
 			if (node.variableType) {
-				this.defineLocalVariable(node.name, node.variableType, true);
+				this.defineLocalVariable(node.name, node.nameToken, node.variableType, true);
 				return;
 			}
 
@@ -160,8 +163,11 @@ class FunctionContext implements IType {
 
 		while (varDecls.length > 0) {
 			const typeReady = varDecls.find(node => this.compiler.inferTypeFrom(node.initializer) != null);
-			if (!typeReady) throw new Error(`Cannot infer type for local variable(s) in function '${this.name}': ${varDecls.map(v => v.name).join(", ")}`);
-			this.defineLocalVariable(typeReady.name, this.compiler.inferTypeFrom(typeReady.initializer), true);
+			if (!typeReady)
+				throw new Error(
+					`Cannot infer type for local variable(s) in function '${this.nameToken.value}': ${varDecls.map(v => v.nameToken.value).join(", ")}`
+				);
+			this.defineLocalVariable(typeReady.name, typeReady.nameToken, this.compiler.inferTypeFrom(typeReady.initializer), true);
 			varDecls.splice(varDecls.indexOf(typeReady), 1);
 		}
 
@@ -172,8 +178,9 @@ class FunctionContext implements IType {
 		this.builder.add(reg(Register.sp), imm(this.currentStackOffset), reg(Register.sp)); // Allocate space on stack for local variables
 	}
 
-	public defineLocalVariable(name: string, type: ASTTypeRef, preReservedStack: boolean) {
-		if (this.locals.has(name)) throw new Error(`Local variable '${name}' is already defined in function '${this.name}'.`);
+	public defineLocalVariable(name: string, nameToken: Token | null, type: ASTTypeRef, preReservedStack: boolean) {
+		// Generated locals have no source token, so their callers pass null.
+		if (this.locals.has(name)) throw new Error(`Local variable '${nameToken?.value ?? name}' is already defined in function '${this.nameToken.value}'.`);
 		const size = this.compiler.resolveTypeSize(type);
 		this.locals.set(name, { refId: uuidv4(), type, stackOffset: this.currentStackOffset, size });
 		this.currentStackOffset += size;
@@ -185,12 +192,13 @@ class FunctionContext implements IType {
 	}
 
 	// A variable 'below' our fp
-	public defineArgumentVariable(name: string, type: ASTTypeRef, stackOffset: number) {
-		if (this.locals.has(name)) throw new Error(`Local variable '${name}' is already defined in function '${this.name}'.`);
+	public defineArgumentVariable(name: string, nameToken: Token | null, type: ASTTypeRef, stackOffset: number) {
+		// The generated return pointer has no source token.
+		if (this.locals.has(name)) throw new Error(`Local variable '${nameToken?.value ?? name}' is already defined in function '${this.nameToken.value}'.`);
 		const forwardDeclaredParam = this.forwardDeclaredParameters.get(name);
 		if (!forwardDeclaredParam && name != returnPointerName)
 			// return pointer isn't forward declared
-			throw new Error(`Attempt to define argument variable '${name}' that was not forward declared in function '${this.name}'.`);
+			throw new Error(`Attempt to define argument variable '${nameToken?.value ?? name}' that was not forward declared in function '${this.nameToken.value}'.`);
 
 		const size = this.compiler.resolveTypeSize(type);
 		this.locals.set(name, { refId: forwardDeclaredParam?.refId ?? uuidv4(), type, stackOffset, size });
@@ -199,14 +207,16 @@ class FunctionContext implements IType {
 	// Reads variable 'name' onto the stack
 	// offset is used for reading a specific element of a struct
 	// if offset is provided must provide a size otherwise the read will overflow the structs bounds
-	public readVarToStack(name: string, offset: number, size: number): void;
-	public readVarToStack(name: string): void;
-	public readVarToStack(name: string, offset = 0, size = -1): void {
+	public readVarToStack(name: string, nameToken: Token | null, offset: number, size: number): void;
+	public readVarToStack(name: string, nameToken: Token | null): void;
+	public readVarToStack(name: string, nameToken: Token | null, offset = 0, size = -1): void {
+		// Generated return variables have no source token.
 		if (this.compiler.functions.has(name)) {
-			if (offset !== 0 || size !== -1) throw new Error(`Cannot read function '${name}' with offset or size.`);
 			const fns = this.compiler.functions.get(name);
+			if (offset !== 0 || size !== -1) throw new Error(`Cannot read function '${nameToken?.value ?? fns?.[0]?.nameToken.value ?? name}' with offset or size.`);
 			if (fns != null) {
-				if (fns.length > 1) throw new Error(`Unable to take function pointer of function '${name}' due to being an overloaded function`);
+				if (fns.length > 1)
+					throw new Error(`Unable to take function pointer of function '${nameToken?.value ?? fns[0].nameToken.value}' due to being an overloaded function`);
 
 				const fn = this.compiler.functions.get(name)[0];
 				this.builder.push(label(fn.label));
@@ -214,7 +224,7 @@ class FunctionContext implements IType {
 			}
 		}
 
-		if (!this.locals.has(name)) throw new Error(`Local variable '${name}' is not defined in function '${this.name}'.`);
+		if (!this.locals.has(name)) throw new Error(`Local variable '${nameToken?.value ?? name}' is not defined in function '${this.nameToken.value}'.`);
 
 		const local = this.locals.get(name);
 		const readSize = size == -1 ? local.size : size;
@@ -234,10 +244,10 @@ class FunctionContext implements IType {
 		}
 	}
 
-	public writeVarFromStack(name: string, offset: number, size: number): void;
-	public writeVarFromStack(name: string): void;
-	public writeVarFromStack(name: string, offset = 0, size = -1): void {
-		if (!this.locals.has(name)) throw new Error(`Local variable '${name}' is not defined in function '${this.name}'.`);
+	public writeVarFromStack(name: string, nameToken: Token, offset: number, size: number): void;
+	public writeVarFromStack(name: string, nameToken: Token): void;
+	public writeVarFromStack(name: string, nameToken: Token, offset = 0, size = -1): void {
+		if (!this.locals.has(name)) throw new Error(`Local variable '${nameToken.value}' is not defined in function '${this.nameToken.value}'.`);
 
 		const local = this.locals.get(name);
 		const readSize = size == -1 ? local.size : size;
@@ -249,10 +259,11 @@ class FunctionContext implements IType {
 		}
 	}
 
-	public readVarToRegister(name: string, register: Register) {
-		if (!this.locals.has(name)) throw new Error(`Local variable '${name}' is not defined in function '${this.name}'.`);
+	public readVarToRegister(name: string, nameToken: Token | null, register: Register) {
+		// The generated return pointer has no source token.
+		if (!this.locals.has(name)) throw new Error(`Local variable '${nameToken?.value ?? name}' is not defined in function '${this.nameToken.value}'.`);
 		const local = this.locals.get(name);
-		if (local.size > 1) throw new Error(`Reading local variable '${name}' to register is only supported for single-cell types.`);
+		if (local.size > 1) throw new Error(`Reading local variable '${nameToken?.value ?? name}' to register is only supported for single-cell types.`);
 
 		// this.builder.add(reg(Register.fp), imm(local.stackOffset), reg(Register.offset));
 		this.builder.move(memReg(Register.fp, local.stackOffset), reg(register));
@@ -267,18 +278,18 @@ class FunctionContext implements IType {
 		this.builder.push(reg(Register.r0));
 	}
 
-	public setVarFromRegister(name: string, register: Register, offset: number = null) {
-		if (!this.locals.has(name)) throw new Error(`Local variable '${name}' is not defined in function '${this.name}'.`);
+	public setVarFromRegister(name: string, nameToken: Token, register: Register, offset: number = null) {
+		if (!this.locals.has(name)) throw new Error(`Local variable '${nameToken.value}' is not defined in function '${this.nameToken.value}'.`);
 
 		const local = this.locals.get(name);
-		if (local.size > 1 && offset === null) throw new Error(`Setting local variable '${name}' from register is only supported for single-cell types.`);
+		if (local.size > 1 && offset === null) throw new Error(`Setting local variable '${nameToken.value}' from register is only supported for single-cell types.`);
 
 		const inputOffset = offset !== null ? offset : 0;
 		this.builder.move(reg(register), memReg(Register.fp, local.stackOffset + inputOffset));
 	}
 
-	public useVariableAsPointerAndSetFromStack(name: string, offset: number, dereferenceCount: number) {
-		if (!this.locals.has(name)) throw new Error(`Local variable '${name}' is not defined in function '${this.name}'.`);
+	public useVariableAsPointerAndSetFromStack(name: string, nameToken: Token, offset: number, dereferenceCount: number) {
+		if (!this.locals.has(name)) throw new Error(`Local variable '${nameToken.value}' is not defined in function '${this.nameToken.value}'.`);
 
 		const local = this.locals.get(name);
 		let currentType = local.type;
@@ -287,7 +298,7 @@ class FunctionContext implements IType {
 		// We want to leave a pointer in r0 to write to, not the value itself
 		if (dereferenceCount > 1) {
 			if (currentType.type != ASTType.WrappedTypeRef)
-				throw new Error(`Attempt to dereference a non-pointer variable '${name}' - type is '${typeToStr(local.type)}'`);
+				throw new Error(`Attempt to dereference a non-pointer variable '${nameToken.value}' - type is '${typeToStr(local.type)}'`);
 			currentType = currentType.inner;
 			this.builder.move(memReg(Register.fp, local.stackOffset), reg(Register.r0));
 		} else {
@@ -297,13 +308,13 @@ class FunctionContext implements IType {
 
 		for (let d = 0; d < dereferenceCount - 2; d++) {
 			if (currentType.type != ASTType.WrappedTypeRef)
-				throw new Error(`Attempt to dereference a non-pointer variable '${name}' - type is '${typeToStr(local.type)}'`);
+				throw new Error(`Attempt to dereference a non-pointer variable '${nameToken.value}' - type is '${typeToStr(local.type)}'`);
 			currentType = currentType.inner;
 			this.builder.move(memReg(Register.r0), reg(Register.r0)); // Deref for each level
 		}
 
 		if (currentType.type != ASTType.WrappedTypeRef)
-			throw new Error(`Attempt to dereference a non-pointer variable '${name}' - type is '${typeToStr(local.type)}'`);
+			throw new Error(`Attempt to dereference a non-pointer variable '${nameToken.value}' - type is '${typeToStr(local.type)}'`);
 
 		const innerSize = this.compiler.resolveTypeSize(currentType.inner);
 
@@ -313,15 +324,15 @@ class FunctionContext implements IType {
 		}
 	}
 
-	public useVariableAsPointerAndReadToStack(name: string, dereferenceCount: number) {
-		if (!this.locals.has(name)) throw new Error(`Local variable '${name}' is not defined in function '${this.name}'.`);
+	public useVariableAsPointerAndReadToStack(name: string, nameToken: Token, dereferenceCount: number) {
+		if (!this.locals.has(name)) throw new Error(`Local variable '${nameToken.value}' is not defined in function '${this.nameToken.value}'.`);
 
 		const local = this.locals.get(name);
 
 		// First deref
 		let currentType = local.type;
 		if (currentType.type != ASTType.WrappedTypeRef)
-			throw new Error(`Attempt to dereference a non-pointer variable '${name}' - type is '${typeToStr(local.type)}'`);
+			throw new Error(`Attempt to dereference a non-pointer variable '${nameToken.value}' - type is '${typeToStr(local.type)}'`);
 
 		currentType = currentType.inner;
 		this.builder.comment(`Initial deref of local variable '${name}'`);
@@ -330,7 +341,7 @@ class FunctionContext implements IType {
 		// Remaining derefs
 		for (let d = 0; d < dereferenceCount - 1; d++) {
 			if (currentType.type != ASTType.WrappedTypeRef)
-				throw new Error(`Attempt to dereference a non-pointer variable '${name}' - type is '${typeToStr(local.type)}'`);
+				throw new Error(`Attempt to dereference a non-pointer variable '${nameToken.value}' - type is '${typeToStr(local.type)}'`);
 			currentType = currentType.inner;
 			this.builder.comment(`Deref level ${d + 1} of local variable '${name}'`);
 			this.builder.move(memReg(Register.r0), reg(Register.r0)); // Deref for each level
@@ -344,20 +355,20 @@ class FunctionContext implements IType {
 		}
 	}
 
-	private resolveLocalForwardOrNonOverloadedFunction(name: string): Local | FunctionContext | ForwardDeclaredLocal {
+	private resolveLocalForwardOrNonOverloadedFunction(name: string, nameToken: Token): Local | FunctionContext | ForwardDeclaredLocal {
 		if (this.locals.has(name)) return this.locals.get(name);
 		if (this.forwardDeclaredParameters.has(name)) return this.forwardDeclaredParameters.get(name);
 		if (this.compiler.functions.has(name)) {
 			const fns = this.compiler.functions.get(name);
-			if (fns.length > 1) throw new Error(`Unable to resolve function '${name}' due to being an overloaded function`);
+			if (fns.length > 1) throw new Error(`Unable to resolve function '${nameToken.value}' due to being an overloaded function`);
 			return fns[0];
 		}
 
-		throw new Error(`Local variable '${name}' is not defined in function '${this.name}'.`);
+		throw new Error(`Local variable '${nameToken.value}' is not defined in function '${this.nameToken.value}'.`);
 	}
 
-	public getTypeOfLocal(name: string): ASTTypeRef {
-		return this.resolveLocalForwardOrNonOverloadedFunction(name).type;
+	public getTypeOfLocal(name: string, nameToken: Token): ASTTypeRef {
+		return this.resolveLocalForwardOrNonOverloadedFunction(name, nameToken).type;
 	}
 
 	public isParameter(name: string): boolean {
@@ -368,17 +379,18 @@ class FunctionContext implements IType {
 		return this.locals.has(name) || this.forwardDeclaredParameters.has(name) || this.compiler.functions.has(name);
 	}
 
-	public getRefId(name: string): string {
-		return this.resolveLocalForwardOrNonOverloadedFunction(name).refId;
+	public getRefId(name: string, nameToken: Token): string {
+		return this.resolveLocalForwardOrNonOverloadedFunction(name, nameToken).refId;
 	}
 
 	public getDetailInfoFromRef(ref: Reference): VariableDetailInformation {
-		if (!this.isDefined(ref.identifier)) throw new Error(`Local variable '${ref.identifier}' is not defined in function '${this.name}'.`);
+		if (!this.isDefined(ref.identifier))
+			throw new Error(`Local variable '${ref.identifierToken.value}' is not defined in function '${this.nameToken.value}'.`);
 
 		return new VariableDetailInformation(
-			this.getRefId(ref.identifier),
+			this.getRefId(ref.identifier, ref.identifierToken),
 			ref.identifierToken,
-			this.getTypeOfLocal(ref.identifier),
+			this.getTypeOfLocal(ref.identifier, ref.identifierToken),
 			this.isParameter(ref.identifier),
 			null
 		);
@@ -395,10 +407,10 @@ class FunctionContext implements IType {
 		}
 	}
 
-	public createCallInfoForLocal(name: string): FunctionCallInfo {
+	public createCallInfoForLocal(name: string, nameToken: Token): FunctionCallInfo {
 		const local = this.locals.get(name);
-		if (!local) throw new Error(`Local variable '${name}' is not defined in function '${this.name}'.`);
-		if (local.type.type !== ASTType.FunctionTypeRef) throw new Error(`Local variable '${name}' is not a function type, cannot create call info.`);
+		if (!local) throw new Error(`Local variable '${nameToken.value}' is not defined in function '${this.nameToken.value}'.`);
+		if (local.type.type !== ASTType.FunctionTypeRef) throw new Error(`Local variable '${nameToken.value}' is not a function type, cannot create call info.`);
 
 		const argSize = local.type.parameters.reduce((acc, param) => acc + this.compiler.resolveTypeSize(param), 0);
 		return {
@@ -414,7 +426,8 @@ class FunctionContext implements IType {
 	}
 
 	public getCallInfo(): FunctionCallInfo {
-		if (!this.type) throw new Error(`Function '${this.name}' has no type information, likely due to recursive call without a strongly declared return type`);
+		if (!this.type)
+			throw new Error(`Function '${this.nameToken.value}' has no type information, likely due to recursive call without a strongly declared return type`);
 		return {
 			getAddress: () => label(this.label),
 			addressExtraInstructionCount: 0,

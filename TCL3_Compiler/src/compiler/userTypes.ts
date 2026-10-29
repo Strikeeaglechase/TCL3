@@ -58,7 +58,7 @@ class Struct implements IType {
 				const existingReturnType = fnList[0].typeRef.returnType;
 				if (!this.compiler.areTypesEqual(existingReturnType, funcCtx.typeRef.returnType)) {
 					throw new Error(
-						`Method '${method.name}' in struct '${this.name}' has inconsistent return types across overloads. Methods must have a consistent return type, standard functions may differ`
+						`Method '${method.nameToken.value}' in struct '${this.nameToken.value}' has inconsistent return types across overloads. Methods must have a consistent return type, standard functions may differ`
 					);
 				}
 			}
