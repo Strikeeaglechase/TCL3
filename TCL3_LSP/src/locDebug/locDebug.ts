@@ -1,5 +1,6 @@
+/*
+import { Linker } from "tlc3/linker/linker.js";
 import { AST } from "tlc3/parser/ast.js";
-import { Linker } from "tlc3/parser/linker.js";
 import { walk } from "tlc3/parser/walker.js";
 
 import { Analyzer } from "../analyzer.js";
@@ -178,3 +179,5 @@ function run() {
 }
 
 init();
+
+*/

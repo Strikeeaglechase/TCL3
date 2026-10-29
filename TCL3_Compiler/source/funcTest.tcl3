@@ -53,8 +53,10 @@ fn main(): void {
 	out points[0].get_x();
 	out points[1].get_y();
 
+
 	points[0].scale(2);
 	out points[0].get_y();
+
 
 	out First.value();
 	out Second.value();

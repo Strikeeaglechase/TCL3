@@ -200,14 +200,7 @@ class Compiler {
 		this.builder.move(label(this.mainLabel), reg(Register.pc));
 
 		this.program.body.forEach(node => {
-			try {
-				this.compileAst(node);
-			} catch (err) {
-				const compilerError = new CompilerError(err, node.location);
-				if (this.throwOnError) throw compilerError;
-
-				this.errors.push(compilerError);
-			}
+			this.compileAst(node);
 		});
 
 		this.builder.addLabel(programExitLabel);
@@ -232,7 +225,7 @@ class Compiler {
 		throw new Error(`Type is not defined: ${type.rawTypeToken.value}`);
 	}
 
-	protected compileAst(node: AST) {
+	private compileAstInner(node: AST) {
 		switch (node.type) {
 			case ASTType.FunctionDeclaration:
 				this.handleTopLevelFunctionDeclaration(node);
@@ -301,6 +294,17 @@ class Compiler {
 				break;
 			default:
 				throw new Error(`Unsupported AST node type: ${node.type}`);
+		}
+	}
+
+	protected compileAst(node: AST) {
+		try {
+			this.compileAstInner(node);
+		} catch (err) {
+			const compilerError = new CompilerError(err, node.location);
+			if (this.throwOnError) throw compilerError;
+
+			this.errors.push(compilerError);
 		}
 	}
 
@@ -489,7 +493,9 @@ class Compiler {
 		const operatorMethod = structDecl.methods.get("[]");
 		const matchingMethod = this.findFunctionMatchingArgumentList(operatorMethod, [ptrOf(type), argType]);
 		if (!matchingMethod)
-			throw new Error(`Struct type '${type.rawType}' does not have an operator overload for '[]' that matches the argument type '${typeToStr(argType)}'.`);
+			throw new Error(
+				`Struct type '${type.rawTypeToken.value}' does not have an operator overload for '[]' that matches the argument type '${typeToStr(argType)}'.`
+			);
 
 		// Remove the final offset ref from the reference chain
 		// Reference should now be a reference to the struct itself, allowing us to use it as a this pointer

@@ -5,7 +5,7 @@ import path from "path";
 import { Compiler } from "./compiler/compiler.js";
 import { Emulator } from "./emulator.js";
 import { IROptimizer } from "./ir/irOptimizer.js";
-import { Linker } from "./parser/linker.js";
+import { Linker } from "./linker/linker.js";
 
 interface TestFile {
 	name: string;

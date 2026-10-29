@@ -5,7 +5,7 @@ import { Emulator } from "./emulator.js";
 import { IRBuilder } from "./ir/irBuilder.js";
 import { loadIrFromFile } from "./ir/irLoader.js";
 import { IROptimizer } from "./ir/irOptimizer.js";
-import { Linker } from "./parser/linker.js";
+import { Linker } from "./linker/linker.js";
 import { UnitTester } from "./unitTests.js";
 
 function linkCompileAndExecute(sourceFilePath: string) {

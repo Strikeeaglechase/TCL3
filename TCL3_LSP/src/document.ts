@@ -1,6 +1,5 @@
 import path from "path";
 
-import { Analyzer } from "./analyzer.js";
 import { SemanticTokenModifiers, SemanticTokenTypes } from "./extraLspTypes.js";
 import { LSP, tokenModifierToBit, tokenTypeToIndex } from "./index.js";
 import { Hover, Position } from "./lspTypes/api.js";
@@ -17,7 +16,14 @@ class Document {
 		this._content = value;
 	}
 
-	private analyzer: Analyzer;
+	public _version: number = 0;
+	public get version() {
+		return this._version;
+	}
+	private set version(value: number) {
+		if (value < this.version) throw new Error(`Version for ${this.uri} was changed from ${this._version} to ${value}`);
+		this._version = value;
+	}
 
 	constructor(
 		private readonly lsp: LSP,
@@ -26,18 +32,17 @@ class Document {
 		this.isSemanticTokenPreview = path.basename(uri) === "semanticTokensPreview.tcl3";
 	}
 
-	public handleFullText(content: string) {
+	public handleFullText(content: string, version: number) {
 		this.content = content;
-
-		this.reanalyze();
+		this.version = version;
 	}
 
-	public handleChange(changes: TextDocumentContentChangeEvent[]) {
+	public handleChange(changes: TextDocumentContentChangeEvent[], version: number) {
 		changes.forEach(change => {
 			this.content = this.processChange(this.content, change);
 		});
 
-		this.reanalyze();
+		this.version = version;
 	}
 
 	private processChange(text: string, change: TextDocumentContentChangeEvent) {
@@ -56,15 +61,10 @@ class Document {
 		}
 	}
 
-	private reanalyze() {
-		if (this.isSemanticTokenPreview) return;
-		this.analyzer = new Analyzer(this.uri, filePath => this.lsp.handleFileRead(filePath));
-	}
-
 	public getSemanticTokens() {
 		if (this.isSemanticTokenPreview) return this.getPreviewSemanticTokens();
 
-		const ranges = this.analyzer.getTokenTypeRanges();
+		const ranges = this.lsp.analyzer.getTokenTypeRanges(this.uri);
 		let lastLine = 0;
 		let lastChar = 0;
 		const result: number[] = [];
@@ -108,7 +108,7 @@ class Document {
 
 	public getHoverInfo(position: Position): Hover {
 		const hoverIndex = this.positionToIndex(position);
-		const detail = this.analyzer.getHoverDetailAtIndex(hoverIndex);
+		const detail = this.lsp.analyzer.getHoverDetailAtIndex(this.uri, hoverIndex);
 
 		if (!detail) return null;
 

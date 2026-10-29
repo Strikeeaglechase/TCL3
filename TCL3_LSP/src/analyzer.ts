@@ -1,12 +1,15 @@
 import chalk from "chalk";
 import path from "path";
 import { Compiler } from "tlc3/compiler/compiler.js";
+import { TCl3Error } from "tlc3/errors.js";
+import { Linker } from "tlc3/linker/linker.js";
 import { AST, ASTType, Program } from "tlc3/parser/ast.js";
-import { Linker } from "tlc3/parser/linker.js";
 import { Token, TokenType } from "tlc3/parser/tokenizer.js";
 import { walk } from "tlc3/parser/walker.js";
 
 import { SemanticTokenTypes } from "./extraLspTypes.js";
+import { LSP } from "./index.js";
+import { Position } from "./lspTypes/api.js";
 
 interface TokenTypeRange {
 	start: number;
@@ -71,42 +74,32 @@ class Analyzer {
 	private readonly program: Program;
 	private readonly compiler: Compiler;
 
-	public tokenTypeRanges: TokenTypeRange[] = [];
+	private tokenTypeRanges: TokenTypeRange[] = [];
 	private tokens: Token[] = [];
 
-	constructor(entryFile: string, readFile: (filePath: string) => string) {
-		this.linker = new Linker(entryFile, {
-			readFile,
-			pathResolver: path => path,
-			throwOnError: false
-		});
+	constructor(
+		private lsp: LSP,
+		configPath: string,
+		readFile: (filePath: string) => string
+	) {
+		const buildArtifacts = Linker.build(configPath, readFile);
+		this.linker = buildArtifacts.linker;
+		this.program = buildArtifacts.program;
+		this.compiler = buildArtifacts.compiler;
 
-		this.program = this.linker.link();
-		this.tokens = this.linker.entryFile.getTokens();
-
-		if (this.linker.entryFile.tokenizerErrors.length > 0) {
-			console.log(chalk.yellow(`${this.linker.entryFile.tokenizerErrors.length} tokenizer errors found in entry file`));
-		}
-
-		if (this.linker.entryFile.parseErrors.length > 0) {
-			console.log(chalk.yellow(`${this.linker.entryFile.parseErrors.length} parse errors found in entry file`));
-		}
-
-		this.compiler = new Compiler(this.program, false);
-		this.compiler.compile();
-
-		if (this.compiler.errors.length > 0) {
-			console.log(chalk.yellow(`${this.compiler.errors.length} compiler errors found in entry file`));
-			this.compiler.errors.forEach(error => {
-				console.log(chalk.red(`Error: ${error.message}`));
-			});
-		}
-
+		this.loadTokensFromAllFiles();
 		this.buildTokenTypeRanges();
 	}
 
-	public getTokenTypeRanges(): TokenTypeRange[] {
-		const targetFileRanges = this.tokenTypeRanges.filter(r => r.fileIdentifier == this.linker.entryFile.identifier);
+	private loadTokensFromAllFiles() {
+		this.linker.files.forEach(file => this.tokens.push(...file.getTokens()));
+	}
+
+	public getTokenTypeRanges(fileUri: string): TokenTypeRange[] {
+		const targetFile = this.linker.getFileByUri(fileUri);
+		if (!targetFile) throw new Error(`File not found for URI: ${fileUri}`);
+
+		const targetFileRanges = this.tokenTypeRanges.filter(r => r.fileIdentifier == targetFile.identifier);
 		const nonOverlappingRanges: TokenTypeRange[] = [];
 		const sortedRanges = targetFileRanges.sort((a, b) => a.start - b.start);
 
@@ -119,8 +112,10 @@ class Analyzer {
 		return nonOverlappingRanges;
 	}
 
-	public getHoverDetailAtIndex(index: number): { detail: string; start: number; end: number } {
-		const hoveredToken = this.tokens.find(token => token.start <= index && token.end >= index);
+	public getHoverDetailAtIndex(fileUri: string, index: number): { detail: string; start: number; end: number } {
+		const targetFile = this.linker.getFileByUri(fileUri);
+		if (!targetFile) throw new Error(`File not found for URI: ${fileUri}`);
+		const hoveredToken = this.tokens.find(token => token.fileIdentifier == targetFile.identifier && token.start <= index && token.end >= index);
 		if (!hoveredToken) {
 			return {
 				detail: "No token found at this position",
@@ -161,7 +156,7 @@ class Analyzer {
 				start: token.start,
 				end: token.end,
 				type: SemanticTokenTypes.comment,
-				fileIdentifier: this.linker.entryFile.identifier
+				fileIdentifier: token.fileIdentifier
 			});
 		});
 	}
@@ -256,6 +251,34 @@ class Analyzer {
 			default:
 				throw new Error(`Unhandled node type: ${(node as any).type}`);
 		}
+	}
+
+	public getErrors() {
+		const fileIdentToUri: Map<string, string> = new Map();
+		const errors: Map<string, Array<{ message: string; range: { start: Position; end: Position } }>> = new Map();
+
+		this.linker.files.forEach(file => {
+			fileIdentToUri.set(file.identifier, file.filePath);
+			errors.set(file.filePath, []);
+		});
+
+		const registerError = (error: TCl3Error) => {
+			const filePath = fileIdentToUri.get(error.location.fileIdentifier);
+			const errorDocument = this.lsp.getDocument(filePath);
+
+			errors.get(filePath).push({
+				message: error.cause.message,
+				range: {
+					start: errorDocument.indexToPosition(error.location.startIndex),
+					end: errorDocument.indexToPosition(error.location.endIndex)
+				}
+			});
+		};
+
+		this.linker.getErrors().forEach(error => registerError(error));
+		this.compiler.errors.forEach(error => registerError(error));
+
+		return errors;
 	}
 }
 

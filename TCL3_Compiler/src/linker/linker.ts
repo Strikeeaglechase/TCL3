@@ -1,10 +1,13 @@
 import fs from "fs";
 import path from "path";
 
-import { ParserError, TokenizerError } from "../errors.js";
-import { ASTType, Program } from "./ast.js";
-import { Parser } from "./parser.js";
-import { Token, Tokenizer } from "./tokenizer.js";
+import { Compiler } from "../compiler/compiler.js";
+import { TCl3Error } from "../errors.js";
+import { IRProgram } from "../ir/ir.js";
+import { IROptimizer } from "../ir/irOptimizer.js";
+import { ASTType, Program } from "../parser/ast.js";
+import { TargetFile } from "./targetFile.js";
+import { defaultTcl3Config, validateConfig } from "./tcl3Config.js";
 
 type FileReader = (filePath: string) => string;
 interface LinkerOptions {
@@ -18,76 +21,21 @@ const defaultLinkerOptions: LinkerOptions = {
 	pathResolver: (filePath: string) => path.resolve(filePath),
 	throwOnError: true
 };
+const defaultLoadFile = (path: string) => fs.readFileSync(path, "utf-8");
 
-let globalFileCounter = 0;
-class TargetFile {
-	public readonly filePath: string;
-	public readonly identifier: string;
-	private content: string;
-	public readonly includes: string[];
-	public readonly exports: string[];
-
-	public dependencies: TargetFile[] = [];
-
-	private tokens: Token[];
-	public getTokens(): Token[] {
-		return this.tokens;
-	}
-	public ast: Program;
-	public parsed = false;
-
-	private debugDir: string = null;
-
-	private tokenizer: Tokenizer;
-	private parser: Parser;
-
-	constructor(
-		filePath: string,
-		private opts: LinkerOptions
-	) {
-		this.filePath = opts.pathResolver(filePath);
-		this.identifier = `file_${path.basename(filePath)}_${globalFileCounter++}`;
-		this.content = opts.readFile(this.filePath);
-
-		this.tokenizer = new Tokenizer(this.content, opts.throwOnError, this.identifier);
-		const tokenizeResult = this.tokenizer.tokenize();
-		this.includes = tokenizeResult.includes;
-		this.exports = tokenizeResult.exports;
-		this.tokens = tokenizeResult.tokens;
-	}
-
-	public parse(publicSymbols: string[]) {
-		this.parser = new Parser(this.tokens, publicSymbols, this.identifier, this.opts.throwOnError);
-		this.ast = this.parser.parse();
-		if (this.debugDir) fs.writeFileSync(path.join(this.debugDir, path.basename(this.filePath) + ".ast.json"), JSON.stringify(this.ast, null, 2));
-		this.parsed = true;
-		return this.ast;
-	}
-
-	public enableDebugIn(debugDir: string) {
-		this.debugDir = debugDir;
-		fs.writeFileSync(path.join(debugDir, path.basename(this.filePath) + ".tokens.txt"), Tokenizer.generateDebug(this.tokens));
-	}
-
-	public isSameAs(otherPath: string) {
-		return this.opts.pathResolver(otherPath) == this.filePath;
-	}
-
-	public get tokenizerErrors(): TokenizerError[] {
-		return this.tokenizer.errors;
-	}
-
-	public get parseErrors(): ParserError[] {
-		return this.parser.parseErrors;
-	}
+interface BuildArtifacts {
+	linker: Linker;
+	program: Program;
+	compiler: Compiler;
+	irProgram: IRProgram;
 }
 
 class Linker {
-	private files: TargetFile[] = [];
+	public readonly files: TargetFile[] = [];
 	private identifierToFileMap: Map<string, TargetFile> = new Map();
 	private debugDir: string = null;
 	private readonly options: LinkerOptions;
-	public readonly entryFile: TargetFile;
+	private readonly entryFile: TargetFile;
 
 	constructor(targetFilePath: string, options: Partial<LinkerOptions> = {}) {
 		this.options = { ...defaultLinkerOptions, ...options };
@@ -164,6 +112,40 @@ class Linker {
 	public getFileByIdentifier(identifier: string): TargetFile {
 		return this.identifierToFileMap.get(identifier);
 	}
+
+	public getFileByUri(uri: string): TargetFile {
+		return this.files.find(f => f.isSameAs(uri));
+	}
+
+	public getErrors() {
+		const errors: TCl3Error[] = [];
+		this.files.forEach(file => {
+			errors.push(...file.tokenizerErrors);
+			errors.push(...file.parserErrors);
+		});
+
+		return errors;
+	}
+
+	public static build(configPath: string, readFile: (path: string) => string = defaultLoadFile): BuildArtifacts {
+		const partialConfig = JSON.parse(readFile(configPath));
+		const builtConfig = { ...defaultTcl3Config, ...partialConfig };
+		validateConfig(builtConfig);
+
+		const basePath = path.dirname(configPath);
+		const linker = new Linker(path.join(basePath, builtConfig.entrypoint), { readFile, throwOnError: false });
+
+		const program = linker.link();
+		const compiler = new Compiler(program, false);
+		const irProgram = compiler.compile();
+		if (!builtConfig.optimize) {
+			return { linker, program, compiler, irProgram };
+		}
+
+		const optimizer = new IROptimizer(irProgram);
+		const optimizedIRProgram = optimizer.optimize();
+		return { linker, program, compiler, irProgram: optimizedIRProgram };
+	}
 }
 
-export { Linker, TargetFile };
+export { Linker, LinkerOptions, BuildArtifacts };

@@ -1,21 +1,31 @@
+import chalk from "chalk";
 import fs from "fs";
 import net from "net";
+import path from "path";
 import { preprocessorDirectiveStart } from "tlc3/parser/tokenizer.js";
 import { RequestMessage, ResponseMessage } from "vscode-jsonrpc";
 import { WebSocket, WebSocketServer } from "ws";
 
+import { Analyzer } from "./analyzer.js";
 import { Document } from "./document.js";
 import { SemanticTokenModifiers, SemanticTokenTypes, TextDocumentSyncKind } from "./extraLspTypes.js";
 import { SemanticTokens } from "./lspTypes/api.js";
 import {
+	DidChangeConfigurationParams,
 	DidChangeTextDocumentParams,
+	DidChangeWatchedFilesParams,
+	DidChangeWorkspaceFoldersParams,
 	DidOpenTextDocumentParams,
+	DocumentDiagnosticParams,
+	DocumentDiagnosticReport,
 	DocumentSelector,
 	HoverParams,
 	InitializeParams,
 	InitializeResult,
 	SemanticTokensParams,
-	ServerCapabilities
+	ServerCapabilities,
+	WorkspaceDiagnosticParams,
+	WorkspaceDiagnosticReport
 } from "./lspTypes/protocol.js";
 
 const tcl3DocumentSelectors: DocumentSelector = [
@@ -45,6 +55,7 @@ const serverCapabilities: ServerCapabilities = {
 		},
 		full: true
 	},
+	workspace: { workspaceFolders: { supported: true, changeNotifications: true } },
 	completionProvider: { triggerCharacters: [".", ">", preprocessorDirectiveStart, ":", "▸", " ", "/"], resolveProvider: false },
 	hoverProvider: true,
 	definitionProvider: true,
@@ -56,20 +67,44 @@ const serverCapabilities: ServerCapabilities = {
 	documentHighlightProvider: true,
 	signatureHelpProvider: { triggerCharacters: ["(", ","], retriggerCharacters: [","] },
 	codeLensProvider: { resolveProvider: false },
-	inlayHintProvider: true
+	inlayHintProvider: true,
+	diagnosticProvider: { documentSelector: tcl3DocumentSelectors, workspaceDiagnostics: true, interFileDependencies: true }
 };
 
 const tokenTypeToIndex = (type: SemanticTokenTypes) => serverCapabilities.semanticTokensProvider.legend.tokenTypes.indexOf(type);
 const tokenModifierToBit = (modifier: SemanticTokenModifiers) => 1 << serverCapabilities.semanticTokensProvider.legend.tokenModifiers.indexOf(modifier);
 
+// This way of handling URIs seems so bad
+// Linker wants nice clean standard filepaths, however VSC/LSP sends weird URI that starts with `file:///c%3A`
+// And anytime we want to send diagnostics to VSC we have to provide a the original path. All URIs from LSP should be cleaned before stored/saved/etc
+const uriMap: Map<string, string> = new Map();
 const cleanUri = (uri: string) => {
-	uri = uri.replace("%3A", ":");
-	if (uri.startsWith("file:///")) {
-		uri = uri.substring("file:///".length);
+	let clean = uri.replace("%3A", ":");
+	if (clean.startsWith("file:///")) {
+		clean = clean.substring("file:///".length);
+	}
+
+	clean = path.resolve(clean);
+	uriMap.set(clean, uri);
+	if (uriMap.has(clean) && uriMap.get(clean) != uri) {
+		console.log(`Two URIs resolved to the same clean URI, clean: ${clean}`);
+		console.log(`Existing URI: ${uriMap.get(clean)}`);
+		console.log(`New URI:      ${uri}`);
+	}
+
+	return clean;
+};
+
+const uncleanUri = (uri: string) => {
+	uri = uriMap.get(uri) || uri;
+	if (!uri.startsWith("file:///")) {
+		uri = "file:///" + uri;
 	}
 
 	return uri;
 };
+
+const tcl3ConfigFileName = `tcl3config.json`;
 
 class LSP {
 	private transportWriter: (data: string) => void;
@@ -78,6 +113,9 @@ class LSP {
 
 	private files: Map<string, Document> = new Map();
 	private directLoadContentCache: Map<string, string> = new Map();
+
+	public analyzer: Analyzer;
+	private tcl3ConfigPath: string;
 
 	private client: WebSocket;
 	private wss: WebSocketServer;
@@ -131,13 +169,57 @@ class LSP {
 		this.registerMessageHandler("textDocument/didOpen", this.handleDocumentOpen.bind(this));
 		this.registerMessageHandler("textDocument/didChange", this.handleDocumentChange.bind(this));
 		this.registerMessageHandler("textDocument/semanticTokens/full", this.handleSemanticTokensRequest.bind(this));
-		// this.registerMessageHandler("textDocument/diagnostic", this.handleDiagnosticRequest.bind(this));
+		this.registerMessageHandler("textDocument/diagnostic", this.handleDiagnosticRequest.bind(this));
+		this.registerMessageHandler("workspace/diagnostic", this.handleWorkspaceDiagnosticRequest.bind(this));
+		this.registerMessageHandler("workspace/didChangeConfiguration", this.handleWorkspaceConfigChange.bind(this));
+		this.registerMessageHandler("workspace/didChangeWatchedFiles", this.handleWorkspaceWatchedFilesChanged.bind(this));
+		this.registerMessageHandler("workspace/didChangeWorkspaceFolders", this.handleWorkspaceFoldersChanged.bind(this));
 		// this.registerMessageHandler("textDocument/completion", this.handleCompletionRequest.bind(this));
 		this.registerMessageHandler("textDocument/hover", this.handleHoverRequest.bind(this));
 	}
 
+	private searchForTcl3ConfigPath(folderPath: string): string {
+		const files = fs.readdirSync(folderPath);
+		const tcl3ConfigPath = files.find(file => file.toLowerCase() == tcl3ConfigFileName);
+		if (tcl3ConfigPath) return path.join(folderPath, tcl3ConfigPath);
+
+		const subDirs = files.filter(file => fs.statSync(path.join(folderPath, file)).isDirectory());
+
+		for (const subDir of subDirs) {
+			const result = this.searchForTcl3ConfigPath(path.join(folderPath, subDir));
+			if (result) return result;
+		}
+		return null;
+	}
+
+	private handleNewWorkspaceFolder(folderPath: string) {
+		const configPath = this.searchForTcl3ConfigPath(folderPath);
+		if (!configPath) {
+			console.log(chalk.red(`No tcl3Config.json found in workspace folder ${folderPath}`));
+			return;
+		}
+
+		console.log(chalk.green(`Found tcl3Config.json at ${configPath}`));
+		this.tcl3ConfigPath = configPath;
+
+		this.reanalyze();
+	}
+
+	private reanalyze() {
+		if (!this.tcl3ConfigPath) {
+			console.log(chalk.red(`No tcl3Config.json found, cannot reanalyze`));
+			return;
+		}
+
+		this.analyzer = new Analyzer(this, this.tcl3ConfigPath, filePath => this.readFile(filePath));
+	}
+
 	private handleInit(message: RequestMessage, payload: InitializeParams) {
 		console.log(`Received init message from ${payload.clientInfo.name}`);
+
+		const workspaceFolder = payload.workspaceFolders?.length > 0 ? payload.workspaceFolders[0] : null;
+		if (!workspaceFolder) console.log(chalk.yellow(`No workspace folder provided`));
+		else this.handleNewWorkspaceFolder(cleanUri(workspaceFolder.uri));
 
 		const replyBody: InitializeResult = {
 			capabilities: serverCapabilities,
@@ -162,10 +244,12 @@ class LSP {
 			console.log(`Creating new document for ${uri}`);
 			const doc = new Document(this, uri);
 			this.files.set(uri, doc);
-			doc.handleFullText(payload.textDocument.text);
+			doc.handleFullText(payload.textDocument.text, payload.textDocument.version);
 		} else {
-			this.files.get(uri).handleFullText(payload.textDocument.text);
+			this.files.get(uri).handleFullText(payload.textDocument.text, payload.textDocument.version);
 		}
+
+		this.reanalyze();
 	}
 
 	private handleDocumentChange(message: RequestMessage, payload: DidChangeTextDocumentParams) {
@@ -175,7 +259,9 @@ class LSP {
 			return;
 		}
 
-		this.files.get(uri).handleChange(payload.contentChanges);
+		this.files.get(uri).handleChange(payload.contentChanges, payload.textDocument.version);
+
+		this.reanalyze();
 	}
 
 	private handleSemanticTokensRequest(message: RequestMessage, payload: SemanticTokensParams) {
@@ -210,7 +296,57 @@ class LSP {
 		return info;
 	}
 
-	public handleFileRead(filePath: string): string {
+	private handleWorkspaceConfigChange(message: RequestMessage, payload: DidChangeConfigurationParams) {}
+
+	private handleDiagnosticRequest(message: RequestMessage, payload: DocumentDiagnosticParams) {
+		const uri = cleanUri(payload.textDocument.uri);
+		const errors = this.analyzer.getErrors();
+		const errorList = errors.get(uri) || [];
+
+		const diagnosticReport: DocumentDiagnosticReport = {
+			items: errorList,
+			kind: "full"
+		};
+
+		return diagnosticReport;
+	}
+
+	private handleWorkspaceDiagnosticRequest(message: RequestMessage, payload: WorkspaceDiagnosticParams) {
+		const errors = this.analyzer.getErrors();
+		const workspaceDiagnostic: WorkspaceDiagnosticReport = {
+			items: []
+		};
+
+		let te = 0;
+		errors.forEach((errorList, filePath) => {
+			const document = this.getDocument(filePath);
+
+			workspaceDiagnostic.items.push({
+				kind: "full",
+				uri: uncleanUri(filePath),
+				items: errorList,
+				version: document.version
+			});
+
+			te += errorList.length;
+		});
+
+		console.log(`Sending diagnostic for ${workspaceDiagnostic.items.length} files, ${te} total errors`);
+
+		return workspaceDiagnostic;
+	}
+
+	private handleWorkspaceWatchedFilesChanged(message: RequestMessage, payload: DidChangeWatchedFilesParams) {
+		// console.log(payload);
+	}
+
+	private handleWorkspaceFoldersChanged(message: RequestMessage, payload: DidChangeWorkspaceFoldersParams) {
+		console.log("Workspace folders changed:", payload);
+	}
+
+	public readFile(filePath: string): string {
+		filePath = cleanUri(filePath);
+		console.log(`Read: ${filePath}`);
 		if (this.files.has(filePath)) {
 			return this.files.get(filePath).content;
 		}
@@ -225,6 +361,11 @@ class LSP {
 		this.directLoadContentCache.set(filePath, content);
 
 		return content;
+	}
+
+	public getDocument(filePath: string) {
+		filePath = cleanUri(filePath);
+		return this.files.get(filePath);
 	}
 
 	private getRawMessageHandler() {
@@ -283,7 +424,7 @@ class LSP {
 		console.log(`Handling message ${message.method}`);
 
 		const result = handler(message, message.params);
-		this.reply(message, result);
+		if (message.id !== undefined) this.reply(message, result);
 	}
 }
 

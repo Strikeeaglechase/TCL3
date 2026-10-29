@@ -5,6 +5,7 @@ interface SourceSpan {
 }
 
 abstract class TCl3Error extends Error {
+	public override readonly cause: Error;
 	constructor(
 		orgError: Error,
 		public location: SourceSpan

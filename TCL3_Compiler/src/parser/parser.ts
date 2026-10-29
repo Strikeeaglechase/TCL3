@@ -585,7 +585,8 @@ class Parser {
 			if (!opPrec) throw new Error(`Unknown operator: ${peaked.value}`);
 			if (opPrec > maxPrecedence) break;
 
-			const operator = this.tokenStream.consumeType(TokenType.Operator).value;
+			const operatorToken = this.tokenStream.consumeType(TokenType.Operator);
+			const operator = operatorToken.value;
 			let rightHand = this.parseStatement(false);
 			rightHand = this.parseBinaryExpression(rightHand, opPrec - 1);
 
@@ -593,6 +594,7 @@ class Parser {
 				type: ASTType.BinaryExpression,
 				left: leftHand,
 				operator: operator,
+				operatorToken: operatorToken,
 				right: rightHand,
 				location: this.extendedSpanFromNode(leftHand)
 			};
