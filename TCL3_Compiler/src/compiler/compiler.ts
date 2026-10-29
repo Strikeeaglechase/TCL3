@@ -193,7 +193,7 @@ class Compiler {
 
 	constructor(
 		private program: Program,
-		private throwOnError: boolean
+		private throwOnError: boolean = true
 	) {}
 
 	public compile() {
@@ -223,7 +223,20 @@ class Compiler {
 			return INT_SIZE; // Enums are represented as integers
 		}
 
-		throw new Error(`Type is not defined: ${type.rawTypeToken.value}`);
+		try {
+			throw new Error(`Type is not defined: ${type.rawTypeToken.value}`);
+		} catch (err) {
+			const compilerError = new CompilerError(err, {
+				startIndex: type.rawTypeToken.start,
+				endIndex: type.rawTypeToken.end,
+				fileIdentifier: type.rawTypeToken.fileIdentifier
+			});
+			if (this.throwOnError) throw compilerError;
+
+			this.errors.push(compilerError);
+
+			return 0;
+		}
 	}
 
 	private compileAstInner(node: AST) {
@@ -1253,7 +1266,7 @@ class Compiler {
 	}
 
 	public handleFunctionDeclaration(node: FunctionDeclaration): FunctionContext {
-		if (this.currentContext != null) throw new Error(`Nested function declarations are not supported.`);
+		// if (this.currentContext != null) throw new Error(`Nested function declarations are not supported.`);
 
 		const argSize = node.parameters.reduce((acc, param) => acc + this.resolveTypeSize(param.type), 0);
 		const funcCtx = new FunctionContext(this, node);
@@ -1275,8 +1288,8 @@ class Compiler {
 
 		funcCtx.setupTypeInformation();
 
-		this.declareDetailForTypeRef(node.returnType);
-		const returnSize = this.resolveTypeSize(node.returnType);
+		this.declareDetailForTypeRef(funcCtx.typeRef.returnType);
+		const returnSize = this.resolveTypeSize(funcCtx.typeRef.returnType);
 
 		// There will be a return address as the first argument
 		if (returnSize > 1) {

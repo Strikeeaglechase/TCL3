@@ -29,6 +29,7 @@ class FunctionContext implements IType {
 	public readonly nameToken: Token;
 	public readonly refId: string = uuidv4();
 	public type: FunctionTypeRef;
+	private returnType: ASTTypeRef;
 	public get callTypeSignature(): string {
 		return this.type.parameters.map(param => typeToStr(param)).join(", ");
 	}
@@ -67,6 +68,7 @@ class FunctionContext implements IType {
 	}
 
 	private checkOrResolveReturnType() {
+		this.returnType = this.definition.returnType;
 		const returns: ReturnStatement[] = [];
 		walk(this.definition, n => {
 			if (n.type === ASTType.ReturnStatement) returns.push(n);
@@ -91,19 +93,19 @@ class FunctionContext implements IType {
 
 		const firstRetType = retTypes[0];
 		if (this.definition.returnType == null) {
-			this.definition.returnType = firstRetType;
+			this.returnType = firstRetType;
 		} else {
-			if (!this.compiler.areTypesEqual(firstRetType, this.definition.returnType)) {
+			if (!this.compiler.areTypesEqual(firstRetType, this.returnType)) {
 				throw new Error(
-					`Function '${this.nameToken.value}' has a return statement with type '${typeToStr(firstRetType)}' that does not match the declared return type '${typeToStr(this.definition.returnType)}'.`
+					`Function '${this.nameToken.value}' has a return statement with type '${typeToStr(firstRetType)}' that does not match the declared return type '${typeToStr(this.returnType)}'.`
 				);
 			}
 		}
 
-		const notMatchingType = retTypes.find(t => !this.compiler.areTypesEqual(t, this.definition.returnType));
+		const notMatchingType = retTypes.find(t => !this.compiler.areTypesEqual(t, this.returnType));
 		if (notMatchingType) {
 			throw new Error(
-				`Function '${this.nameToken.value}' has a return statement with type '${typeToStr(notMatchingType)}' that does not match the declared return type '${typeToStr(this.definition.returnType)}'.`
+				`Function '${this.nameToken.value}' has a return statement with type '${typeToStr(notMatchingType)}' that does not match the declared return type '${typeToStr(this.returnType)}'.`
 			);
 		}
 	}
@@ -133,7 +135,7 @@ class FunctionContext implements IType {
 			type: ASTType.FunctionTypeRef,
 			fnKeywordToken: this.definition.nameToken,
 			parameters: this.definition.parameters.map(param => param.type),
-			returnType: this.definition.returnType
+			returnType: this.returnType
 		};
 
 		if (this.type.returnType == null) throw new Error(`Function '${this.nameToken.value}' has a return type that could not be resolved.`);
@@ -198,7 +200,9 @@ class FunctionContext implements IType {
 		const forwardDeclaredParam = this.forwardDeclaredParameters.get(name);
 		if (!forwardDeclaredParam && name != returnPointerName)
 			// return pointer isn't forward declared
-			throw new Error(`Attempt to define argument variable '${nameToken?.value ?? name}' that was not forward declared in function '${this.nameToken.value}'.`);
+			throw new Error(
+				`Attempt to define argument variable '${nameToken?.value ?? name}' that was not forward declared in function '${this.nameToken.value}'.`
+			);
 
 		const size = this.compiler.resolveTypeSize(type);
 		this.locals.set(name, { refId: forwardDeclaredParam?.refId ?? uuidv4(), type, stackOffset, size });
@@ -213,10 +217,13 @@ class FunctionContext implements IType {
 		// Generated return variables have no source token.
 		if (this.compiler.functions.has(name)) {
 			const fns = this.compiler.functions.get(name);
-			if (offset !== 0 || size !== -1) throw new Error(`Cannot read function '${nameToken?.value ?? fns?.[0]?.nameToken.value ?? name}' with offset or size.`);
+			if (offset !== 0 || size !== -1)
+				throw new Error(`Cannot read function '${nameToken?.value ?? fns?.[0]?.nameToken.value ?? name}' with offset or size.`);
 			if (fns != null) {
 				if (fns.length > 1)
-					throw new Error(`Unable to take function pointer of function '${nameToken?.value ?? fns[0].nameToken.value}' due to being an overloaded function`);
+					throw new Error(
+						`Unable to take function pointer of function '${nameToken?.value ?? fns[0].nameToken.value}' due to being an overloaded function`
+					);
 
 				const fn = this.compiler.functions.get(name)[0];
 				this.builder.push(label(fn.label));
@@ -282,7 +289,8 @@ class FunctionContext implements IType {
 		if (!this.locals.has(name)) throw new Error(`Local variable '${nameToken.value}' is not defined in function '${this.nameToken.value}'.`);
 
 		const local = this.locals.get(name);
-		if (local.size > 1 && offset === null) throw new Error(`Setting local variable '${nameToken.value}' from register is only supported for single-cell types.`);
+		if (local.size > 1 && offset === null)
+			throw new Error(`Setting local variable '${nameToken.value}' from register is only supported for single-cell types.`);
 
 		const inputOffset = offset !== null ? offset : 0;
 		this.builder.move(reg(register), memReg(Register.fp, local.stackOffset + inputOffset));

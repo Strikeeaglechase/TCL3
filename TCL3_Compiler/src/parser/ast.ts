@@ -53,6 +53,7 @@ export interface FunctionDeclaration extends ASTNode {
 	body: AST[];
 	static: boolean;
 	staticKeyword: Token;
+	closeParenToken: Token;
 }
 
 export interface WrappedTypeRef extends ASTNode {

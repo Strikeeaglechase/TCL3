@@ -63,10 +63,11 @@ class Stream<T> {
 
 class TypedObjectStream<T extends { type: unknown; value: unknown }> extends Stream<T> {
 	public consumeType(expectedType: T["type"]): T {
-		const value = this.next();
+		const value = this.peak();
 		if (value.type !== expectedType) {
-			throw new Error(`Expected type ${expectedType} but got ${value.type}`);
+			throw new Error(`Expected ${expectedType} but got ${value.type}`);
 		}
+		this.next();
 
 		return value;
 	}

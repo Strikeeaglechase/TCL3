@@ -1,15 +1,18 @@
 import chalk from "chalk";
 import path from "path";
 import { Compiler } from "tlc3/compiler/compiler.js";
+import { FunctionContext } from "tlc3/compiler/functionContext.js";
+import { typeToStr } from "tlc3/compiler/types.js";
 import { TCl3Error } from "tlc3/errors.js";
 import { Linker } from "tlc3/linker/linker.js";
-import { AST, ASTType, Program } from "tlc3/parser/ast.js";
+import { AST, ASTType, FunctionDeclaration, Program, VariableDeclaration } from "tlc3/parser/ast.js";
 import { Token, TokenType } from "tlc3/parser/tokenizer.js";
 import { walk } from "tlc3/parser/walker.js";
 
+import { Document } from "./document.js";
 import { SemanticTokenTypes } from "./extraLspTypes.js";
 import { LSP } from "./index.js";
-import { Position } from "./lspTypes/api.js";
+import { InlayHint, Position, Range } from "./lspTypes/api.js";
 
 interface TokenTypeRange {
 	start: number;
@@ -140,6 +143,57 @@ class Analyzer {
 			detail: `\`\`\`rust\n${detail}\n\`\`\``,
 			start: hoveredToken.start,
 			end: hoveredToken.end
+		};
+	}
+
+	public getInlayHints(fileUri: string, range: Range): InlayHint[] {
+		const targetFile = this.linker.getFileByUri(fileUri);
+		if (!targetFile) throw new Error(`File not found for URI: ${fileUri}`);
+
+		const document = this.lsp.getDocument(fileUri);
+
+		const inlayHints: InlayHint[] = [];
+
+		walk(targetFile.ast, node => {
+			switch (node.type) {
+				case ASTType.VariableDeclaration: {
+					const hint = this.getVariableInlayHint(node, document);
+					if (hint) inlayHints.push(hint);
+					break;
+				}
+
+				case ASTType.FunctionDeclaration: {
+					const hint = this.getFunctionInlayHint(node, document);
+					if (hint) inlayHints.push(hint);
+					break;
+				}
+			}
+		});
+
+		return inlayHints;
+	}
+
+	private getVariableInlayHint(varDecl: VariableDeclaration, document: Document): InlayHint {
+		if (varDecl.variableType) return null;
+
+		const detail = this.compiler.getTokenDetail(varDecl.nameToken);
+		if (!detail) return null;
+
+		return {
+			position: document.indexToPosition(varDecl.nameToken.end),
+			label: `: ${typeToStr(detail.typeRef)}`
+		};
+	}
+
+	private getFunctionInlayHint(fnDecl: FunctionDeclaration, document: Document): InlayHint {
+		if (fnDecl.returnType) return null;
+
+		const fnDetail = this.compiler.getTokenDetail(fnDecl.nameToken);
+		if (!fnDetail || !(fnDetail instanceof FunctionContext)) return null;
+
+		return {
+			position: document.indexToPosition(fnDetail.definition.closeParenToken.end),
+			label: `: ${typeToStr(fnDetail.typeRef.returnType)}`
 		};
 	}
 

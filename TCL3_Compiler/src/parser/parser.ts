@@ -39,6 +39,10 @@ import { mainFnName, operandPrecedence, selfAssignMathOps, Token, TokenType } fr
 const allowedOperatorOverloads = ["+", "-", "*", "/", "[]", "==", "!=", "<", ">", "<=", ">=", "&&", "||", "&", "|", "^", "<<", ">>"];
 const builtinTypes = ["int", "char", "bool", "void"];
 let id = 0;
+const pushIfDef = <T>(arr: T[], value: T) => {
+	if (value != undefined) arr.push(value);
+};
+
 class Parser {
 	private tokenStream: TypedObjectStream<Token>;
 	private rewrittenNames: Map<string, string> = new Map();
@@ -64,8 +68,7 @@ class Parser {
 		const body: AST[] = [];
 
 		while (!this.tokenStream.eof()) {
-			const statement = this.parseStatement();
-			if (statement) body.push(statement);
+			pushIfDef(body, this.parseStatement());
 		}
 
 		return { type: ASTType.Program, body: body };
@@ -393,7 +396,7 @@ class Parser {
 			name = this.maybeRewriteName(name);
 		}
 
-		const parameters = this.parseParenthesizedParameterList();
+		const { parameters, closeParenToken } = this.parseParenthesizedParameterList();
 		let returnType: ASTTypeRef = null;
 		if (this.tokenStream.maybeConsumeTV(TokenType.Symbol, ":")) {
 			returnType = this.parseTypeRef().type;
@@ -411,7 +414,8 @@ class Parser {
 			returnType: returnType,
 			body: body,
 			static: staticKw !== null,
-			staticKeyword: staticKw
+			staticKeyword: staticKw,
+			closeParenToken: closeParenToken
 		};
 
 		return this.attachLocation(funcDecl, startTokenIndex);
@@ -444,7 +448,7 @@ class Parser {
 		return varDecl;
 	}
 
-	private parseParenthesizedParameterList(): FunctionDeclaration["parameters"] {
+	private parseParenthesizedParameterList(): { parameters: FunctionDeclaration["parameters"]; closeParenToken: Token } {
 		this.tokenStream.consumeTV(TokenType.Symbol, "(");
 		const parameters: FunctionDeclaration["parameters"] = [];
 
@@ -463,9 +467,9 @@ class Parser {
 			parameters.push({ name: name.value, nameToken: name, type, location: this.tokenSpan(name) });
 		}
 
-		this.tokenStream.consumeTV(TokenType.Symbol, ")");
+		const closeParenToken = this.tokenStream.consumeTV(TokenType.Symbol, ")");
 
-		return parameters;
+		return { parameters, closeParenToken };
 	}
 
 	private parseParenthesizedArgumentList(): AST[] {
@@ -479,7 +483,7 @@ class Parser {
 				this.tokenStream.consumeTV(TokenType.Symbol, ",");
 			}
 
-			args.push(this.parseStatement(true));
+			pushIfDef(args, this.parseStatement(true));
 		}
 
 		this.tokenStream.consumeTV(TokenType.Symbol, ")");
@@ -497,14 +501,15 @@ class Parser {
 				const peaked = this.tokenStream.peak();
 				if (peaked.type == TokenType.Symbol && peaked.value == "}") break;
 
-				body.push(this.parseStatement());
+				pushIfDef(body, this.parseStatement());
 			}
 
 			this.tokenStream.consumeTV(TokenType.Symbol, "}");
 
 			return { body, bracketed };
 		} else {
-			const body: AST[] = [this.parseStatement()];
+			const body: AST[] = [];
+			pushIfDef(body, this.parseStatement());
 			return { body, bracketed };
 		}
 	}
@@ -849,7 +854,7 @@ class Parser {
 			if (peaked.type == TokenType.Symbol && peaked.value == "}") break;
 
 			if (values.length > 0) this.tokenStream.consumeTV(TokenType.Symbol, ",");
-			values.push(this.parseStatement(true));
+			pushIfDef(values, this.parseStatement(true));
 		}
 
 		this.tokenStream.consumeTV(TokenType.Symbol, "}");

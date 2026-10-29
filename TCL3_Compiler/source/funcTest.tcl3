@@ -42,13 +42,16 @@ struct Second {
 	}
 }
 
-fn make_point(x: int, y: int): Point {
+fn make_point(x: int, y: int) {
 	let p: Point = {x: x, y: y};
+
 	return p;
 }
 
 fn main(): void {
 	let points: Point[2] = {make_point(11, 12), make_point(31, 41)};
+
+	let test = points[0];
 
 	out points[0].get_x();
 	out points[1].get_y();
@@ -58,6 +61,6 @@ fn main(): void {
 	out points[0].get_y();
 
 
-	out First.valu2e();
+	out First.value();
 	out Second.value();
 }

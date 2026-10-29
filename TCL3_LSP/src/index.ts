@@ -22,6 +22,7 @@ import {
 	HoverParams,
 	InitializeParams,
 	InitializeResult,
+	InlayHintParams,
 	SemanticTokensParams,
 	ServerCapabilities,
 	WorkspaceDiagnosticParams,
@@ -110,6 +111,7 @@ class LSP {
 	private transportWriter: (data: string) => void;
 	private messageHandlers: Record<string, (message: RequestMessage, payload: any) => any> = {};
 	private loggedNoHandler: Set<string> = new Set();
+	private loggedHandled: Set<string> = new Set();
 
 	private files: Map<string, Document> = new Map();
 	private directLoadContentCache: Map<string, string> = new Map();
@@ -165,6 +167,10 @@ class LSP {
 			});
 		}
 
+		this.registerHandlers();
+	}
+
+	private registerHandlers() {
 		this.registerMessageHandler("initialize", this.handleInit.bind(this));
 		this.registerMessageHandler("textDocument/didOpen", this.handleDocumentOpen.bind(this));
 		this.registerMessageHandler("textDocument/didChange", this.handleDocumentChange.bind(this));
@@ -176,6 +182,7 @@ class LSP {
 		this.registerMessageHandler("workspace/didChangeWorkspaceFolders", this.handleWorkspaceFoldersChanged.bind(this));
 		// this.registerMessageHandler("textDocument/completion", this.handleCompletionRequest.bind(this));
 		this.registerMessageHandler("textDocument/hover", this.handleHoverRequest.bind(this));
+		this.registerMessageHandler("textDocument/inlayHint", this.handleInlayHintRequest.bind(this));
 	}
 
 	private searchForTcl3ConfigPath(folderPath: string): string {
@@ -298,6 +305,14 @@ class LSP {
 
 	private handleWorkspaceConfigChange(message: RequestMessage, payload: DidChangeConfigurationParams) {}
 
+	private handleInlayHintRequest(message: RequestMessage, payload: InlayHintParams) {
+		const uri = cleanUri(payload.textDocument.uri);
+		const hints = this.analyzer.getInlayHints(uri, payload.range);
+
+		// const inlayHints: InlayHint[] = hints;
+		return hints;
+	}
+
 	private handleDiagnosticRequest(message: RequestMessage, payload: DocumentDiagnosticParams) {
 		const uri = cleanUri(payload.textDocument.uri);
 		const errors = this.analyzer.getErrors();
@@ -331,7 +346,7 @@ class LSP {
 			te += errorList.length;
 		});
 
-		console.log(`Sending diagnostic for ${workspaceDiagnostic.items.length} files, ${te} total errors`);
+		// console.log(`Sending diagnostic for ${workspaceDiagnostic.items.length} files, ${te} total errors`);
 
 		return workspaceDiagnostic;
 	}
@@ -417,11 +432,14 @@ class LSP {
 		if (!handler) {
 			if (!this.loggedNoHandler.has(message.method)) {
 				this.loggedNoHandler.add(message.method);
-				console.log(`No handler for method ${message.method}`);
+				console.log(chalk.yellow(`No handler for method ${message.method}`));
 			}
 			return;
 		}
-		console.log(`Handling message ${message.method}`);
+		if (!this.loggedHandled.has(message.method)) {
+			console.log(chalk.blue(`Handling message ${message.method}`));
+			this.loggedHandled.add(message.method);
+		}
 
 		const result = handler(message, message.params);
 		if (message.id !== undefined) this.reply(message, result);

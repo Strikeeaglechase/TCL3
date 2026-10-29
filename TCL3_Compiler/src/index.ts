@@ -9,10 +9,10 @@ import { Linker } from "./linker/linker.js";
 import { UnitTester } from "./unitTests.js";
 
 function linkCompileAndExecute(sourceFilePath: string) {
-	const linker = new Linker(sourceFilePath);
+	const linker = new Linker(sourceFilePath /*, { throwOnError: false }*/);
 	linker.enableDebug("../debug");
 	const astProgram = linker.link();
-	const compiler = new Compiler(astProgram, true);
+	const compiler = new Compiler(astProgram);
 	const irProgram = compiler.compile();
 	fs.writeFileSync("../debug/ir.txt", IRBuilder.getDebugText(irProgram, false));
 	const optimizer = new IROptimizer(irProgram);
@@ -37,5 +37,5 @@ function executeIrFile(irFilePath: string) {
 	emulator.execute();
 }
 
-linkCompileAndExecute("../source/funcTest.tcl3");
+linkCompileAndExecute("../source/temp.tcl3");
 // executeIrFile("../debug/ir.txt");
