@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 
+import { ParserError, TokenizerError } from "../errors.js";
 import { ASTType, Program } from "./ast.js";
 import { Parser } from "./parser.js";
 import { Token, Tokenizer } from "./tokenizer.js";
@@ -37,6 +38,9 @@ class TargetFile {
 
 	private debugDir: string = null;
 
+	private tokenizer: Tokenizer;
+	private parser: Parser;
+
 	constructor(
 		filePath: string,
 		private opts: LinkerOptions
@@ -45,14 +49,16 @@ class TargetFile {
 		this.identifier = `file_${path.basename(filePath)}_${globalFileCounter++}`;
 		this.content = opts.readFile(this.filePath);
 
-		const tokenizeResult = new Tokenizer(this.content, opts.throwOnError, this.identifier).tokenize();
+		this.tokenizer = new Tokenizer(this.content, opts.throwOnError, this.identifier);
+		const tokenizeResult = this.tokenizer.tokenize();
 		this.includes = tokenizeResult.includes;
 		this.exports = tokenizeResult.exports;
 		this.tokens = tokenizeResult.tokens;
 	}
 
 	public parse(publicSymbols: string[]) {
-		this.ast = new Parser(this.tokens, publicSymbols, this.identifier, this.opts.throwOnError).parse();
+		this.parser = new Parser(this.tokens, publicSymbols, this.identifier, this.opts.throwOnError);
+		this.ast = this.parser.parse();
 		if (this.debugDir) fs.writeFileSync(path.join(this.debugDir, path.basename(this.filePath) + ".ast.json"), JSON.stringify(this.ast, null, 2));
 		this.parsed = true;
 		return this.ast;
@@ -65,6 +71,14 @@ class TargetFile {
 
 	public isSameAs(otherPath: string) {
 		return this.opts.pathResolver(otherPath) == this.filePath;
+	}
+
+	public get tokenizerErrors(): TokenizerError[] {
+		return this.tokenizer.errors;
+	}
+
+	public get parseErrors(): ParserError[] {
+		return this.parser.parseErrors;
 	}
 }
 

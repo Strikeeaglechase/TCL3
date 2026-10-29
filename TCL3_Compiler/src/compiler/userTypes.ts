@@ -4,12 +4,15 @@ import { ASTType, ASTTypeRef, EnumDeclaration, RawTypeRef, StructDeclaration } f
 import { Token } from "../parser/tokenizer.js";
 import { Compiler } from "./compiler.js";
 import { FunctionContext } from "./functionContext.js";
+import { typeToStr } from "./types.js";
 
 interface IType {
 	refId: string;
 	nameToken: Token;
 
 	typeRef: ASTTypeRef;
+
+	getHoverDetail(): string;
 }
 
 interface StructField {
@@ -63,6 +66,33 @@ class Struct implements IType {
 			this.methods.get(method.name).push(funcCtx);
 		});
 	}
+
+	public getHoverDetail(): string {
+		let detail = `struct ${this.nameToken.value} {\n`;
+
+		this.fields.forEach((field, name) => {
+			detail += `\t${name}: ${typeToStr(field.type)};\n`;
+		});
+
+		this.methods.forEach((methodList, name) => {
+			methodList.forEach(method => {
+				const def = method.definition;
+				const paramList = def.parameters
+					.map((param, idx) => {
+						if (idx == 0 && param.name === "this") return null;
+						return `${param.nameToken.value}: ${typeToStr(param.type)}`;
+					})
+					.filter(v => v != null)
+					.join(", ");
+
+				detail += `\t${method.nameToken.value}(${paramList}): ${typeToStr(method.typeRef.returnType)};\n`;
+			});
+		});
+
+		detail += `}`;
+
+		return detail;
+	}
 }
 
 interface EnumVariant {
@@ -85,6 +115,10 @@ class Enum implements IType {
 
 	public get typeRef(): RawTypeRef {
 		return { type: ASTType.RawTypeRef, rawType: this.name, rawTypeToken: this.nameToken };
+	}
+
+	public getHoverDetail(): string {
+		return `(enum) ${this.name}`;
 	}
 }
 

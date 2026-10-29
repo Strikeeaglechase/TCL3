@@ -27,7 +27,7 @@ function typeToStr(type: ASTTypeRef): string {
 			result += fnType;
 			break;
 		} else if (current.type == ASTType.RawTypeRef) {
-			result += current.rawType;
+			result += current.rawTypeToken.value;
 			break;
 		}
 	}

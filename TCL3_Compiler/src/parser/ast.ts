@@ -52,6 +52,7 @@ export interface FunctionDeclaration extends ASTNode {
 	returnType: ASTTypeRef;
 	body: AST[];
 	static: boolean;
+	staticKeyword: Token;
 }
 
 export interface WrappedTypeRef extends ASTNode {
@@ -90,6 +91,7 @@ export interface BinaryExpression extends ASTNode {
 	type: ASTType.BinaryExpression;
 	left: AST;
 	operator: string;
+	operatorToken: Token;
 	right: AST;
 }
 

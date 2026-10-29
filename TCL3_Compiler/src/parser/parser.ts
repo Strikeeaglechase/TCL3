@@ -136,7 +136,7 @@ class Parser {
 	private paresKeyword(keyword: string) {
 		switch (keyword) {
 			case "fn":
-				return this.handleFunctionDeclaration(false, false);
+				return this.handleFunctionDeclaration(false, null);
 			case "let":
 				return this.handleVariableDeclaration();
 			case "struct":
@@ -293,7 +293,7 @@ class Parser {
 
 			if (peaked.type == TokenType.Keyword && peaked.value == "fn") {
 				this.tokenStream.consumeTV(TokenType.Keyword, "fn");
-				const func = this.handleFunctionDeclaration(true, false);
+				const func = this.handleFunctionDeclaration(true, null);
 				// Add this parameter
 				func.parameters.unshift({
 					name: "this",
@@ -303,10 +303,10 @@ class Parser {
 				});
 				methods.push(func);
 			} else if (peaked.type == TokenType.Keyword && peaked.value == "static") {
-				this.tokenStream.consumeTV(TokenType.Keyword, "static");
+				const staticKw = this.tokenStream.consumeTV(TokenType.Keyword, "static");
 				this.tokenStream.consumeTV(TokenType.Keyword, "fn");
 
-				const func = this.handleFunctionDeclaration(true, true);
+				const func = this.handleFunctionDeclaration(true, staticKw);
 				methods.push(func);
 			} else if (peaked.type == TokenType.Identifier) {
 				const fieldName = this.tokenStream.consumeType(TokenType.Identifier);
@@ -375,7 +375,7 @@ class Parser {
 		return { type: ASTType.WrappedTypeRef, inner: { type: ASTType.RawTypeRef, rawType: raw, rawTypeToken: token } };
 	}
 
-	private handleFunctionDeclaration(structMethod: boolean, isStatic: boolean) {
+	private handleFunctionDeclaration(structMethod: boolean, staticKw: Token) {
 		const startTokenIndex = this.tokenStream.position - 1; // The 'fn' token was already consumed
 		const nameToken = this.tokenStream.next();
 		let name = nameToken.value;
@@ -410,7 +410,8 @@ class Parser {
 			parameters: parameters,
 			returnType: returnType,
 			body: body,
-			static: isStatic
+			static: staticKw !== null,
+			staticKeyword: staticKw
 		};
 
 		return this.attachLocation(funcDecl, startTokenIndex);
@@ -711,6 +712,7 @@ class Parser {
 			type: ASTType.BinaryExpression,
 			left: ref,
 			operator: operator,
+			operatorToken: operatorToken,
 			right: expression,
 			location: this.extendedSpanFromNode(ref)
 		};

@@ -49,32 +49,32 @@ class FunctionContext implements IType {
 
 	constructor(
 		private compiler: Compiler,
-		private func: FunctionDeclaration
+		public readonly definition: FunctionDeclaration
 		// name: string,
 		// argSize: number,
 		// returnType: ASTTypeRef
 	) {
-		this.name = func.name;
-		this.nameToken = func.nameToken;
+		this.name = definition.name;
+		this.nameToken = definition.nameToken;
 		const fnId = id++;
 		this.label = this.name == mainFnName ? mainFnName : `${this.name}_${fnId}`;
 		this.outLabel = `${this.name}_out_${fnId}`;
-		this.argSize = func.parameters.reduce((acc, param) => acc + this.compiler.resolveTypeSize(param.type), 0);
+		this.argSize = definition.parameters.reduce((acc, param) => acc + this.compiler.resolveTypeSize(param.type), 0);
 		this.builder = this.compiler.builder;
-		this.isStatic = func.static;
+		this.isStatic = definition.static;
 
 		this.builder.addLabel(this.label);
 	}
 
 	private checkOrResolveReturnType() {
 		const returns: ReturnStatement[] = [];
-		walk(this.func, n => {
+		walk(this.definition, n => {
 			if (n.type === ASTType.ReturnStatement) returns.push(n);
 		});
 
 		if (returns.length == 0) {
-			if (this.func.returnType.type != ASTType.RawTypeRef || this.func.returnType.rawType != "void") {
-				throw new Error(`Function '${this.name}' has no return statements, but has a declared return type of '${typeToStr(this.func.returnType)}'.`);
+			if (this.definition.returnType.type != ASTType.RawTypeRef || this.definition.returnType.rawType != "void") {
+				throw new Error(`Function '${this.name}' has no return statements, but has a declared return type of '${typeToStr(this.definition.returnType)}'.`);
 			}
 
 			return;
@@ -88,20 +88,20 @@ class FunctionContext implements IType {
 		}
 
 		const firstRetType = retTypes[0];
-		if (this.func.returnType == null) {
-			this.func.returnType = firstRetType;
+		if (this.definition.returnType == null) {
+			this.definition.returnType = firstRetType;
 		} else {
-			if (!this.compiler.areTypesEqual(firstRetType, this.func.returnType)) {
+			if (!this.compiler.areTypesEqual(firstRetType, this.definition.returnType)) {
 				throw new Error(
-					`Function '${this.name}' has a return statement with type '${typeToStr(firstRetType)}' that does not match the declared return type '${typeToStr(this.func.returnType)}'.`
+					`Function '${this.name}' has a return statement with type '${typeToStr(firstRetType)}' that does not match the declared return type '${typeToStr(this.definition.returnType)}'.`
 				);
 			}
 		}
 
-		const notMatchingType = retTypes.find(t => !this.compiler.areTypesEqual(t, this.func.returnType));
+		const notMatchingType = retTypes.find(t => !this.compiler.areTypesEqual(t, this.definition.returnType));
 		if (notMatchingType) {
 			throw new Error(
-				`Function '${this.name}' has a return statement with type '${typeToStr(notMatchingType)}' that does not match the declared return type '${typeToStr(this.func.returnType)}'.`
+				`Function '${this.name}' has a return statement with type '${typeToStr(notMatchingType)}' that does not match the declared return type '${typeToStr(this.definition.returnType)}'.`
 			);
 		}
 	}
@@ -116,22 +116,22 @@ class FunctionContext implements IType {
 
 	// Enables recursive functions if the user has specified a return type
 	private establishPartialType() {
-		if (this.func.returnType == null) return;
+		if (this.definition.returnType == null) return;
 
 		this.type = {
 			type: ASTType.FunctionTypeRef,
-			fnKeywordToken: this.func.nameToken,
-			parameters: this.func.parameters.map(param => param.type),
-			returnType: this.func.returnType
+			fnKeywordToken: this.definition.nameToken,
+			parameters: this.definition.parameters.map(param => param.type),
+			returnType: this.definition.returnType
 		};
 	}
 
 	private establishType() {
 		this.type = {
 			type: ASTType.FunctionTypeRef,
-			fnKeywordToken: this.func.nameToken,
-			parameters: this.func.parameters.map(param => param.type),
-			returnType: this.func.returnType
+			fnKeywordToken: this.definition.nameToken,
+			parameters: this.definition.parameters.map(param => param.type),
+			returnType: this.definition.returnType
 		};
 
 		if (this.type.returnType == null) throw new Error(`Function '${this.name}' has a return type that could not be resolved.`);
@@ -141,12 +141,12 @@ class FunctionContext implements IType {
 	private forwardDeclareVariables() {
 		// Add parameters as forward declared, however do not yet position them on the stack
 		// Positioning must wait until we know the return type size, as we may have a return pointer as the very first argument
-		this.func.parameters.forEach(param => {
+		this.definition.parameters.forEach(param => {
 			this.forwardDeclaredParameters.set(param.name, { refId: uuidv4(), type: param.type, size: this.compiler.resolveTypeSize(param.type) });
 		});
 
 		const varDecls: VariableDeclaration[] = [];
-		walk(this.func, node => {
+		walk(this.definition, node => {
 			if (node.type != ASTType.VariableDeclaration) return;
 
 			// Concrete type, safe to immediately define
@@ -426,6 +426,19 @@ class FunctionContext implements IType {
 
 	public get typeRef(): FunctionTypeRef {
 		return this.type;
+	}
+
+	public getHoverDetail(): string {
+		const header = this.methodForStruct ? `(method) ${this.methodForStruct.nameToken.value}.` : "(function) ";
+		const paramList = this.definition.parameters
+			.map((param, idx) => {
+				if (idx == 0 && param.nameToken.value == `this`) return null;
+				return `${param.nameToken.value}: ${typeToStr(param.type)}`;
+			})
+			.filter(v => v != null)
+			.join(", ");
+
+		return `${header}${this.nameToken.value}(${paramList}): ${typeToStr(this.type.returnType)}`;
 	}
 }
 

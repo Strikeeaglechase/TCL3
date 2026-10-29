@@ -8,6 +8,8 @@ struct Point {
 	x: int;
 	y: int;
 
+	// p: Point;
+
 	fn get_x(): int {
 		return this->x;
 	}
@@ -19,6 +21,11 @@ struct Point {
 	fn scale(factor: int): void {
 		this->x *= factor;
 		this->y *= factor;
+	}
+
+	fn scale(pt: Point): void {
+		this->x *= pt.x;
+		this->y *= pt.y;
 	}
 }
 

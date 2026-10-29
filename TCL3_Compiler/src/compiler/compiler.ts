@@ -105,6 +105,13 @@ class VariableDetailInformation implements IType {
 	public get typeRef(): ASTTypeRef {
 		return this.type;
 	}
+
+	public getHoverDetail(): string {
+		if (this.propertyOf) return `${this.propertyOf.nameToken.value}.${this.nameToken.value}: ${typeToStr(this.typeRef)}`;
+
+		const header = this.isParameter ? "(parameter) " : "";
+		return `${header}${this.nameToken.value}: ${typeToStr(this.typeRef)}`;
+	}
 }
 
 class BuiltInTypeRefDetailInformation implements IType {
@@ -129,6 +136,13 @@ class BuiltInTypeRefDetailInformation implements IType {
 
 	public get typeRef(): ASTTypeRef {
 		return this.type;
+	}
+
+	public getHoverDetail(): string {
+		if (!this.fnType) return null;
+
+		const detail = `function(${this.fnType.parameters.map(param => typeToStr(param)).join(", ")}): ${typeToStr(this.fnType.returnType)}`;
+		return detail;
 	}
 }
 
@@ -174,7 +188,7 @@ class Compiler {
 		return this.tokenDetails.get(token);
 	}
 
-	private errors: CompilerError[] = [];
+	public errors: CompilerError[] = [];
 
 	constructor(
 		private program: Program,
@@ -215,7 +229,7 @@ class Compiler {
 			return INT_SIZE; // Enums are represented as integers
 		}
 
-		throw new Error(`Unsupported type: ${type.rawType}`);
+		throw new Error(`Type is not defined: ${type.rawTypeToken.value}`);
 	}
 
 	protected compileAst(node: AST) {
@@ -488,7 +502,7 @@ class Compiler {
 		};
 
 		const returnType = matchingMethod.typeRef.returnType;
-		const returnSize = this.callMethod(structDecl, matchingMethod.name, fnCall);
+		const returnSize = this.callMethod(structDecl, matchingMethod.name, fnCall, null);
 
 		// The behavior of resolveComplexReferenceAddressInR0 means that we want R0 to point to our data
 		// And the caller of resolveComplex will then push the data onto the stack, however, functions already push the data
@@ -888,8 +902,8 @@ class Compiler {
 		return BinaryExpressionTypeEvalResult.notOpOverload();
 	}
 
-	private handleBinaryExpression(node: BinaryExpression) {
-		const overloadResult = this.getMethodForOverloadedBinaryExpression(node);
+	private handleBinaryExpression(binaryExpr: BinaryExpression) {
+		const overloadResult = this.getMethodForOverloadedBinaryExpression(binaryExpr);
 		if (overloadResult.isOpOverload) {
 			const { method, left, right, struct } = overloadResult;
 			if (left.type != ASTType.Reference) throw new Error(`Left operand of overloaded operator must be a reference to a struct, got ${left.type}`);
@@ -900,12 +914,12 @@ class Compiler {
 				arguments: [right]
 			};
 
-			this.callMethod(struct, method.name, call);
+			this.callMethod(struct, method.name, call, binaryExpr.operatorToken);
 			return;
 		}
 
-		this.compileAst(node.left);
-		this.compileAst(node.right);
+		this.compileAst(binaryExpr.left);
+		this.compileAst(binaryExpr.right);
 		this.builder.pop(reg(Register.r1));
 		this.builder.pop(reg(Register.r0));
 
@@ -928,13 +942,13 @@ class Compiler {
 			"%": "mod"
 		};
 
-		if (operatorMap[node.operator]) {
-			this.builder[operatorMap[node.operator]](reg(Register.r0), reg(Register.r1), reg(Register.r0));
+		if (operatorMap[binaryExpr.operator]) {
+			this.builder[operatorMap[binaryExpr.operator]](reg(Register.r0), reg(Register.r1), reg(Register.r0));
 			this.builder.push(reg(Register.r0));
 			return;
 		}
 
-		switch (node.operator) {
+		switch (binaryExpr.operator) {
 			case "<":
 				this.builder.gt(reg(Register.r1), reg(Register.r0), reg(Register.r0));
 				break;
@@ -942,7 +956,7 @@ class Compiler {
 				this.builder.gte(reg(Register.r1), reg(Register.r0), reg(Register.r0));
 				break;
 			default:
-				throw new Error(`Unsupported binary operator: ${node.operator}`);
+				throw new Error(`Unsupported binary operator: ${binaryExpr.operator}`);
 		}
 
 		this.builder.push(reg(Register.r0));
@@ -977,6 +991,12 @@ class Compiler {
 		this.structs.set(node.name, struct);
 
 		this.registerDetail(node.nameToken, struct);
+		node.fields.forEach(field => {
+			this.declareDetailForTypeRef(field.type);
+
+			const fieldDetail = new VariableDetailInformation(struct.fields.get(field.name).refId, field.nameToken, field.type, false, struct);
+			this.registerDetail(field.nameToken, fieldDetail);
+		});
 
 		// Only build method after the struct is fully defined, so that methods can reference the struct's fields if needed
 		struct.buildMethods();
@@ -1234,9 +1254,12 @@ class Compiler {
 
 		// this.builder.commentln(`Arg setup fn "${node.name}":`);
 		node.parameters.forEach(param => {
-			this.declareDetailForTypeRef(param.type);
 			funcCtx.defineArgumentVariable(param.name, param.type, argStackOffset);
 			argStackOffset += this.resolveTypeSize(param.type);
+
+			this.declareDetailForTypeRef(param.type);
+			const varDetail = new VariableDetailInformation(funcCtx.getRefId(param.name), param.nameToken, param.type, true, null);
+			this.registerDetail(param.nameToken, varDetail);
 		});
 
 		this.builder.commentln(`Function body fn "${node.name}":`);
@@ -1445,7 +1468,7 @@ class Compiler {
 		if (isMethod) {
 			// Remove the function name from reference chain
 			const methodName = this.deleteRefsFinalChild(call.reference);
-			this.callMethod(methodStructDecl, methodName.identifier, call);
+			this.callMethod(methodStructDecl, methodName.identifier, call, methodName.identifierToken);
 			return;
 		}
 
@@ -1495,7 +1518,7 @@ class Compiler {
 		else if (returnSize > 1) this.currentContext.readVarToStack(returnVarName);
 	}
 
-	private callMethod(struct: Struct, methodName: string, call: FunctionCall) {
+	private callMethod(struct: Struct, methodName: string, call: FunctionCall, callToken: Token) {
 		const methods = struct.methods.get(methodName);
 		const debugName = `${struct.name}_${methodName}`;
 		this.builder.comment(`Calling method ${debugName}`);
@@ -1503,6 +1526,8 @@ class Compiler {
 		const argumentList = call.arguments.map(arg => this.inferTypeFrom(arg));
 		argumentList.unshift(ptrOf(struct.typeRef)); // Add this pointer as first argument
 		const matchingMethod = this.findFunctionMatchingArgumentList(methods, argumentList);
+
+		if (callToken) this.registerDetail(callToken, matchingMethod);
 
 		return this.callFunction(debugName, matchingMethod.getCallInfo(), call, call.reference);
 	}

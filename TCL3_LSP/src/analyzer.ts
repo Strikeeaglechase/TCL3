@@ -1,6 +1,6 @@
+import chalk from "chalk";
 import path from "path";
 import { Compiler } from "tlc3/compiler/compiler.js";
-import { typeToStr } from "tlc3/compiler/types.js";
 import { AST, ASTType, Program } from "tlc3/parser/ast.js";
 import { Linker } from "tlc3/parser/linker.js";
 import { Token, TokenType } from "tlc3/parser/tokenizer.js";
@@ -84,8 +84,23 @@ class Analyzer {
 		this.program = this.linker.link();
 		this.tokens = this.linker.entryFile.getTokens();
 
+		if (this.linker.entryFile.tokenizerErrors.length > 0) {
+			console.log(chalk.yellow(`${this.linker.entryFile.tokenizerErrors.length} tokenizer errors found in entry file`));
+		}
+
+		if (this.linker.entryFile.parseErrors.length > 0) {
+			console.log(chalk.yellow(`${this.linker.entryFile.parseErrors.length} parse errors found in entry file`));
+		}
+
 		this.compiler = new Compiler(this.program, false);
 		this.compiler.compile();
+
+		if (this.compiler.errors.length > 0) {
+			console.log(chalk.yellow(`${this.compiler.errors.length} compiler errors found in entry file`));
+			this.compiler.errors.forEach(error => {
+				console.log(chalk.red(`Error: ${error.message}`));
+			});
+		}
 
 		this.buildTokenTypeRanges();
 	}
@@ -106,23 +121,28 @@ class Analyzer {
 
 	public getHoverDetailAtIndex(index: number): { detail: string; start: number; end: number } {
 		const hoveredToken = this.tokens.find(token => token.start <= index && token.end >= index);
-		if (!hoveredToken)
+		if (!hoveredToken) {
 			return {
 				detail: "No token found at this position",
 				start: index,
 				end: index
 			};
+		}
 
 		const tokenDetail = this.compiler.getTokenDetail(hoveredToken);
-		if (!tokenDetail)
+		if (!tokenDetail) {
 			return {
 				detail: "No detail information available for this token",
 				start: hoveredToken.start,
 				end: hoveredToken.end
 			};
+		}
 
+		const detail = tokenDetail.getHoverDetail();
+		if (!detail) return null;
 		return {
-			detail: `${tokenDetail.nameToken.value}: ${typeToStr(tokenDetail.typeRef)} (${tokenDetail.constructor.name})`,
+			// detail: `${tokenDetail.nameToken.value}: ${typeToStr(tokenDetail.typeRef)} (${tokenDetail.constructor.name})`,
+			detail: `\`\`\`rust\n${detail}\n\`\`\``,
 			start: hoveredToken.start,
 			end: hoveredToken.end
 		};
@@ -160,6 +180,7 @@ class Analyzer {
 
 			case ASTType.FunctionDeclaration:
 				return [
+					...(node.static ? [keywordAt("static", node.staticKeyword)] : []),
 					keywordAt("fn", node.location),
 					tokenAt(SemanticTokenTypes.function, node.nameToken),
 					...node.parameters.map(param => tokenAt(SemanticTokenTypes.parameter, param.nameToken))

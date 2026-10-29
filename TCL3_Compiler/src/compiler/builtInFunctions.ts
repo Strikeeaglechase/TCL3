@@ -5,7 +5,7 @@ import { imm, reg } from "../ir/irBuilder.js";
 import { ASTType, ASTTypeRef, FunctionCall, FunctionTypeRef } from "../parser/ast.js";
 import { Token, TokenType } from "../parser/tokenizer.js";
 import { Compiler } from "./compiler.js";
-import { primitiveSizeMap, ptrOf, rawTypeOf } from "./types.js";
+import { primitiveSizeMap, ptrOf, rawTypeOf, typeToStr } from "./types.js";
 import { IType } from "./userTypes.js";
 
 class BuiltInFunction implements IType {
@@ -36,6 +36,12 @@ class BuiltInFunction implements IType {
 		};
 
 		return fnRef;
+	}
+
+	public getHoverDetail(): string {
+		const paramsStr = this.parameters.map(p => `${p.name}: ${typeToStr(p.type)}`).join(", ");
+
+		return `${this.name}(${paramsStr}): ${typeToStr(this.returnType)}`;
 	}
 }
 
