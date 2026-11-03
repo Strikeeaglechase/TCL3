@@ -29,6 +29,12 @@ struct Point {
 	}
 }
 
+enum Test {
+	A,
+	B
+	
+}
+
 // ISS-021
 struct First {
 	static fn value(): int {

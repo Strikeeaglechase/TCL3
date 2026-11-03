@@ -135,4 +135,4 @@ class Enum implements IType {
 	}
 }
 
-export { Struct, Enum, IType };
+export { Struct, StructField, Enum, EnumVariant, IType };

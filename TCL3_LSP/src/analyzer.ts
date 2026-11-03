@@ -1,6 +1,6 @@
 import chalk from "chalk";
 import path from "path";
-import { Compiler } from "tlc3/compiler/compiler.js";
+import { Compiler, TokenDetailInfo, VariableDetailInformation } from "tlc3/compiler/compiler.js";
 import { FunctionContext } from "tlc3/compiler/functionContext.js";
 import { typeToStr } from "tlc3/compiler/types.js";
 import { Struct } from "tlc3/compiler/userTypes.js";
@@ -13,7 +13,7 @@ import { walk } from "tlc3/parser/walker.js";
 import { Document } from "./document.js";
 import { SemanticTokenTypes, SymbolKind } from "./extraLspTypes.js";
 import { LSP } from "./index.js";
-import { DocumentSymbol, InlayHint, Position, Range } from "./lspTypes/api.js";
+import { DefinitionLink, DocumentHighlight, DocumentSymbol, InlayHint, Position, Range } from "./lspTypes/api.js";
 
 interface TokenTypeRange {
 	start: number;
@@ -99,81 +99,106 @@ class Analyzer {
 		this.linker.files.forEach(file => this.tokens.push(...file.getTokens()));
 	}
 
-	public getTokenTypeRanges(fileUri: string): TokenTypeRange[] {
-		const targetFile = this.linker.getFileByUri(fileUri);
-		if (!targetFile) throw new Error(`File not found for URI: ${fileUri}`);
+	private getTokenDetailAtIndex(fileIdentifier: string, index: number): { detail: TokenDetailInfo; token: Token } {
+		const hoveredToken = this.tokens.find(token => token.fileIdentifier == fileIdentifier && token.start <= index && token.end >= index);
+		if (!hoveredToken) return { detail: null, token: null };
 
-		const targetFileRanges = this.tokenTypeRanges.filter(r => r.fileIdentifier == targetFile.identifier);
-		const nonOverlappingRanges: TokenTypeRange[] = [];
-		const sortedRanges = targetFileRanges.sort((a, b) => a.start - b.start);
-
-		for (const range of sortedRanges) {
-			if (nonOverlappingRanges.length == 0 || range.start >= nonOverlappingRanges[nonOverlappingRanges.length - 1].end) {
-				nonOverlappingRanges.push(range);
-			}
-		}
-
-		return nonOverlappingRanges;
+		return { detail: this.compiler.getTokenDetail(hoveredToken), token: hoveredToken };
 	}
 
 	public getHoverDetailAtIndex(fileUri: string, index: number): { detail: string; start: number; end: number } {
 		const targetFile = this.linker.getFileByUri(fileUri);
 		if (!targetFile) throw new Error(`File not found for URI: ${fileUri}`);
-		const hoveredToken = this.tokens.find(token => token.fileIdentifier == targetFile.identifier && token.start <= index && token.end >= index);
-		if (!hoveredToken) {
-			return {
-				detail: "No token found at this position",
-				start: index,
-				end: index
-			};
-		}
 
-		const tokenDetail = this.compiler.getTokenDetail(hoveredToken);
-		if (!tokenDetail) {
-			return {
-				detail: "No detail information available for this token",
-				start: hoveredToken.start,
-				end: hoveredToken.end
-			};
-		}
-
-		const detail = tokenDetail.getHoverDetail();
+		const { detail, token } = this.getTokenDetailAtIndex(targetFile.identifier, index);
 		if (!detail) return null;
+
+		const detailText = detail.getHoverDetail();
+		if (!detail) return null;
+
 		return {
-			// detail: `${tokenDetail.nameToken.value}: ${typeToStr(tokenDetail.typeRef)} (${tokenDetail.constructor.name})`,
-			detail: `\`\`\`rust\n${detail}\n\`\`\``,
-			start: hoveredToken.start,
-			end: hoveredToken.end
+			detail: `\`\`\`rust\n${detailText}\n\`\`\``,
+			start: token.start,
+			end: token.end
 		};
 	}
 
-	public getInlayHints(fileUri: string, range: Range): InlayHint[] {
-		const targetFile = this.linker.getFileByUri(fileUri);
-		if (!targetFile) throw new Error(`File not found for URI: ${fileUri}`);
-
+	public getDocumentHighlights(fileUri: string, position: Position): DocumentHighlight[] {
 		const document = this.lsp.getDocument(fileUri);
+		const file = this.linker.getFileByUri(fileUri);
 
-		const inlayHints: InlayHint[] = [];
+		const index = document.positionToIndex(position);
+		const { detail } = this.getTokenDetailAtIndex(file.identifier, index);
+		if (!detail) return [];
 
-		walk(targetFile.ast, node => {
-			switch (node.type) {
-				case ASTType.VariableDeclaration: {
-					const hint = this.getVariableInlayHint(node, document);
-					if (hint) inlayHints.push(hint);
-					break;
+		const allMatchingDetails = this.compiler.getTokenDetailsMatchingRefId(detail.refId);
+
+		const highlights: DocumentHighlight[] = allMatchingDetails.map(matchingDetail => {
+			return {
+				range: {
+					start: document.indexToPosition(matchingDetail.token.start),
+					end: document.indexToPosition(matchingDetail.token.end)
 				}
-
-				case ASTType.FunctionDeclaration: {
-					const hint = this.getFunctionInlayHint(node, document);
-					if (hint) inlayHints.push(hint);
-					break;
-				}
-			}
+			};
 		});
 
-		return inlayHints;
+		return highlights;
 	}
 
+	public getDefinitionForPosition(fileUri: string, position: Position): DefinitionLink {
+		const document = this.lsp.getDocument(fileUri);
+		const file = this.linker.getFileByUri(fileUri);
+
+		const index = document.positionToIndex(position);
+
+		const { detail } = this.getTokenDetailAtIndex(file.identifier, index);
+		if (!detail) return null;
+
+		if (detail instanceof FunctionContext || detail instanceof Struct) {
+			const defFile = this.linker.getFileByIdentifier(detail.definition.location.fileIdentifier);
+			const defDocument = this.lsp.getDocument(defFile.filePath);
+
+			const link: DefinitionLink = {
+				targetUri: defFile.filePath,
+				targetRange: {
+					start: defDocument.indexToPosition(detail.definition.nameToken.start),
+					end: defDocument.indexToPosition(detail.definition.bodyEndIndex)
+				},
+				targetSelectionRange: {
+					start: defDocument.indexToPosition(detail.definition.nameToken.start),
+					end: defDocument.indexToPosition(detail.definition.nameToken.end)
+				}
+			};
+
+			return link;
+		}
+
+		if (detail instanceof VariableDetailInformation) {
+			const defDetail = this.compiler.getDefinitionForRefId(detail.refId);
+			if (!defDetail) return null;
+
+			const defFile = this.linker.getFileByIdentifier(defDetail.token.fileIdentifier);
+			const defDocument = this.lsp.getDocument(defFile.filePath);
+
+			const link: DefinitionLink = {
+				targetUri: defFile.filePath,
+				targetRange: {
+					start: defDocument.indexToPosition(defDetail.token.start),
+					end: defDocument.indexToPosition(defDetail.token.end)
+				},
+				targetSelectionRange: {
+					start: defDocument.indexToPosition(defDetail.token.start),
+					end: defDocument.indexToPosition(defDetail.token.end)
+				}
+			};
+
+			return link;
+		}
+
+		return null;
+	}
+
+	// Document symbols
 	public getDocumentSymbols(fileUri: string): DocumentSymbol[] {
 		const symbols: DocumentSymbol[] = [];
 		const file = this.linker.getFileByUri(fileUri);
@@ -257,6 +282,34 @@ class Analyzer {
 		return symbol;
 	}
 
+	// Inlay hints
+	public getInlayHints(fileUri: string, range: Range): InlayHint[] {
+		const targetFile = this.linker.getFileByUri(fileUri);
+		if (!targetFile) throw new Error(`File not found for URI: ${fileUri}`);
+
+		const document = this.lsp.getDocument(fileUri);
+
+		const inlayHints: InlayHint[] = [];
+
+		walk(targetFile.ast, node => {
+			switch (node.type) {
+				case ASTType.VariableDeclaration: {
+					const hint = this.getVariableInlayHint(node, document);
+					if (hint) inlayHints.push(hint);
+					break;
+				}
+
+				case ASTType.FunctionDeclaration: {
+					const hint = this.getFunctionInlayHint(node, document);
+					if (hint) inlayHints.push(hint);
+					break;
+				}
+			}
+		});
+
+		return inlayHints;
+	}
+
 	private getVariableInlayHint(varDecl: VariableDeclaration, document: Document): InlayHint {
 		if (varDecl.variableType) return null;
 
@@ -279,6 +332,24 @@ class Analyzer {
 			position: document.indexToPosition(fnDetail.definition.closeParenToken.end),
 			label: `: ${typeToStr(fnDetail.typeRef.returnType)}`
 		};
+	}
+
+	// Semantic token types
+	public getTokenTypeRanges(fileUri: string): TokenTypeRange[] {
+		const targetFile = this.linker.getFileByUri(fileUri);
+		if (!targetFile) throw new Error(`File not found for URI: ${fileUri}`);
+
+		const targetFileRanges = this.tokenTypeRanges.filter(r => r.fileIdentifier == targetFile.identifier);
+		const nonOverlappingRanges: TokenTypeRange[] = [];
+		const sortedRanges = targetFileRanges.sort((a, b) => a.start - b.start);
+
+		for (const range of sortedRanges) {
+			if (nonOverlappingRanges.length == 0 || range.start >= nonOverlappingRanges[nonOverlappingRanges.length - 1].end) {
+				nonOverlappingRanges.push(range);
+			}
+		}
+
+		return nonOverlappingRanges;
 	}
 
 	private buildTokenTypeRanges() {

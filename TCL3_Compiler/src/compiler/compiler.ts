@@ -1,6 +1,5 @@
 import chalk from "chalk";
 import fs from "fs";
-import { v4 as uuidv4 } from "uuid";
 
 import { CompilerError } from "../errors.js";
 import { IRArgument, Register } from "../ir/ir.js";
@@ -35,9 +34,10 @@ import {
 } from "../parser/ast.js";
 import { mainFnName, resultTypeIsBoolOperands, Token, TokenType } from "../parser/tokenizer.js";
 import { BuiltInFunction, builtInFunctions } from "./builtInFunctions.js";
+import { BuiltInTypeRefDetailInformation, TokenDetailInfo, VariableDetailInformation } from "./detail.js";
 import { FunctionContext } from "./functionContext.js";
 import { boolType, charType, intType, primitiveSizeMap, ptrOf, typeToStr, voidType } from "./types.js";
-import { Enum, IType, Struct } from "./userTypes.js";
+import { Enum, EnumVariant, Struct } from "./userTypes.js";
 
 function referenceToString(ref: Reference, useTokenValues = false): string {
 	let result = "";
@@ -92,62 +92,6 @@ class BinaryExpressionTypeEvalResult {
 	}
 }
 
-// For LSP info only, real var info is `Local` in FunctionContext
-class VariableDetailInformation implements IType {
-	public constructor(
-		public readonly refId: string,
-		public readonly nameToken: Token,
-		public readonly type: ASTTypeRef,
-		public readonly isParameter: boolean,
-		public readonly propertyOf: Struct | Enum | null
-	) {}
-
-	public get typeRef(): ASTTypeRef {
-		return this.type;
-	}
-
-	public getHoverDetail(): string {
-		if (this.propertyOf) return `${this.propertyOf.nameToken.value}.${this.nameToken.value}: ${typeToStr(this.typeRef)}`;
-
-		const header = this.isParameter ? "(parameter) " : "";
-		return `${header}${this.nameToken.value}: ${typeToStr(this.typeRef)}`;
-	}
-}
-
-class BuiltInTypeRefDetailInformation implements IType {
-	private static typeUuidMap: Map<string, string> = new Map();
-	private static getTypeUuid(raw: string) {
-		if (!this.typeUuidMap.has(raw)) this.typeUuidMap.set(raw, uuidv4());
-		return this.typeUuidMap.get(raw);
-	}
-
-	public readonly nameToken: Token;
-	public readonly refId: string;
-	public readonly fnType: FunctionTypeRef = null;
-	constructor(
-		public readonly type: RawTypeRef | FunctionTypeRef,
-		public readonly derefCount: number
-	) {
-		this.nameToken = type.type == ASTType.RawTypeRef ? type.rawTypeToken : type.fnKeywordToken;
-		this.refId = BuiltInTypeRefDetailInformation.getTypeUuid(type.type == ASTType.RawTypeRef ? type.rawType : typeToStr(type));
-
-		if (type.type == ASTType.FunctionTypeRef) this.fnType = type;
-	}
-
-	public get typeRef(): ASTTypeRef {
-		return this.type;
-	}
-
-	public getHoverDetail(): string {
-		if (!this.fnType) return null;
-
-		const detail = `function(${this.fnType.parameters.map(param => typeToStr(param)).join(", ")}): ${typeToStr(this.fnType.returnType)}`;
-		return detail;
-	}
-}
-
-type TokenDetailInfo = Struct | Enum | FunctionContext | VariableDetailInformation | BuiltInFunction | BuiltInTypeRefDetailInformation;
-
 const programExitLabel = `__program_exit`;
 const returnPointerName = `__returnPointer`;
 
@@ -170,6 +114,14 @@ class Compiler {
 	}
 
 	private tokenDetails: Map<Token, TokenDetailInfo> = new Map();
+
+	public errors: CompilerError[] = [];
+
+	constructor(
+		private program: Program,
+		private throwOnError: boolean = true
+	) {}
+
 	private registerDetail(token: Token, detail: TokenDetailInfo) {
 		if (this.tokenDetails.has(token)) {
 			const existingDetail = this.tokenDetails.get(token);
@@ -189,12 +141,20 @@ class Compiler {
 		return this.tokenDetails.get(token);
 	}
 
-	public errors: CompilerError[] = [];
+	public getTokenDetailsMatchingRefId(refId: string): { detail: TokenDetailInfo; token: Token }[] {
+		const matchingDetails: { detail: TokenDetailInfo; token: Token }[] = [];
+		this.tokenDetails.forEach((detail, token) => {
+			if (detail.refId === refId) matchingDetails.push({ detail, token });
+		});
 
-	constructor(
-		private program: Program,
-		private throwOnError: boolean = true
-	) {}
+		return matchingDetails;
+	}
+
+	public getDefinitionForRefId(refId: string) {
+		const matchingDetails = this.getTokenDetailsMatchingRefId(refId);
+		const def = matchingDetails.find(d => (d.detail instanceof VariableDetailInformation && d.detail.isDeclaration) || d.detail instanceof FunctionContext);
+		return def;
+	}
 
 	public compile() {
 		this.builder.move(imm(255), reg(Register.memPtr));
@@ -582,7 +542,7 @@ class Compiler {
 				this.builder.add(reg(Register.r0), imm(field.offset), reg(Register.r0));
 				currentType = field.type;
 
-				const varDetail = new VariableDetailInformation(field.refId, curRef.identifierToken, currentType, false, structDef);
+				const varDetail = VariableDetailInformation.Field(field, curRef.identifierToken, structDef, false);
 				this.registerDetail(curRef.identifierToken, varDetail);
 			}
 			top = false;
@@ -669,7 +629,7 @@ class Compiler {
 
 			this.builder.push(imm(enumKey.value));
 
-			const varDetail = new VariableDetailInformation(enumKey.refId, ref.child.identifierToken, enumDecl.typeRef, false, enumDecl);
+			const varDetail = VariableDetailInformation.EnumVariant(enumKey, ref.child.identifierToken, enumDecl, false);
 			this.registerDetail(ref.child.identifierToken, varDetail);
 			return;
 		}
@@ -732,13 +692,7 @@ class Compiler {
 			if (!enumDecl.variants.has(node.child.identifier))
 				throw new Error(`Enum '${node.identifierToken.value}' does not have a variant named '${node.child.identifierToken.value}'.`);
 
-			const varDetail = new VariableDetailInformation(
-				enumDecl.variants.get(node.child.identifier).refId,
-				node.child.identifierToken,
-				enumDecl.typeRef,
-				false,
-				enumDecl
-			);
+			const varDetail = VariableDetailInformation.EnumVariant(enumDecl.variants.get(node.child.identifier), node.child.identifierToken, enumDecl, false);
 			this.registerDetail(node.child.identifierToken, varDetail);
 			return { type: enumDecl.typeRef, isMethod: false };
 		}
@@ -763,7 +717,9 @@ class Compiler {
 					`Static method expected, but method '${node.child.identifierToken.value}' of struct type '${node.identifierToken.value}' is not static.`
 				);
 
-			const varDetail = new VariableDetailInformation(fn.refId, node.child.identifierToken, fn.typeRef, false, null);
+			// We should probably definitely register detail here... however previous detail register is missing parent method listing?
+			// const varDetail = new VariableDetailInformation(fn.refId, node.child.identifierToken, fn.typeRef, false, null);
+			const varDetail = VariableDetailInformation.Function(fn, node.child.identifierToken);
 			this.registerDetail(node.child.identifierToken, varDetail);
 
 			return { type: fn.typeRef, isMethod: false };
@@ -801,7 +757,7 @@ class Compiler {
 
 				currentType = field.type;
 
-				const varDetail = new VariableDetailInformation(field.refId, curRef.identifierToken, currentType, false, structDef);
+				const varDetail = VariableDetailInformation.Field(field, curRef.identifierToken, structDef, false);
 				this.registerDetail(curRef.identifierToken, varDetail);
 			}
 			top = false;
@@ -882,7 +838,7 @@ class Compiler {
 
 			curRef = curRef.child;
 
-			const varDetail = new VariableDetailInformation(field.refId, curRef.identifierToken, currentType, false, structDef);
+			const varDetail = VariableDetailInformation.Field(field, curRef.identifierToken, structDef, false);
 			this.registerDetail(curRef.identifierToken, varDetail);
 		}
 	}
@@ -1035,7 +991,7 @@ class Compiler {
 		node.fields.forEach(field => {
 			this.declareDetailForTypeRef(field.type);
 
-			const fieldDetail = new VariableDetailInformation(struct.fields.get(field.name).refId, field.nameToken, field.type, false, struct);
+			const fieldDetail = VariableDetailInformation.Field(struct.fields.get(field.name), field.nameToken, struct, true);
 			this.registerDetail(field.nameToken, fieldDetail);
 		});
 
@@ -1141,7 +1097,7 @@ class Compiler {
 
 		this.builder.comment(`Variable declaration: '${varDecl.name}' type: ${typeToStr(type)}`);
 
-		const varDetail = new VariableDetailInformation(uuidv4(), varDecl.nameToken, type, false, null);
+		const varDetail = VariableDetailInformation.VariableDeclaration(this.currentContext.getRefId(varDecl.name, varDecl.nameToken), varDecl.nameToken, type);
 		this.registerDetail(varDecl.nameToken, varDetail);
 
 		if (varDecl.arraySizeExpression) {
@@ -1302,7 +1258,7 @@ class Compiler {
 			argStackOffset += this.resolveTypeSize(param.type);
 
 			this.declareDetailForTypeRef(param.type);
-			const varDetail = new VariableDetailInformation(funcCtx.getRefId(param.name, param.nameToken), param.nameToken, param.type, true, null);
+			const varDetail = VariableDetailInformation.ParameterDeclaration(funcCtx.getRefId(param.name, param.nameToken), param.nameToken, param.type);
 			this.registerDetail(param.nameToken, varDetail);
 		});
 
@@ -1472,7 +1428,7 @@ class Compiler {
 					node.reference.child.identifierToken
 				);
 
-				const varDetail = new VariableDetailInformation(fn.refId, node.reference.child.identifierToken, fn.typeRef, false, null);
+				const varDetail = VariableDetailInformation.Function(fn, node.reference.child.identifierToken);
 				this.registerDetail(node.reference.child.identifierToken, varDetail);
 				return;
 			}

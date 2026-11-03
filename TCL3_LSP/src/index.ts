@@ -9,8 +9,9 @@ import { WebSocket, WebSocketServer } from "ws";
 import { Analyzer } from "./analyzer.js";
 import { Document } from "./document.js";
 import { SemanticTokenModifiers, SemanticTokenTypes, TextDocumentSyncKind } from "./extraLspTypes.js";
-import { SemanticTokens } from "./lspTypes/api.js";
+import { DefinitionLink, DocumentHighlight, SemanticTokens } from "./lspTypes/api.js";
 import {
+	DefinitionParams,
 	DidChangeConfigurationParams,
 	DidChangeTextDocumentParams,
 	DidChangeWatchedFilesParams,
@@ -18,6 +19,7 @@ import {
 	DidOpenTextDocumentParams,
 	DocumentDiagnosticParams,
 	DocumentDiagnosticReport,
+	DocumentHighlightParams,
 	DocumentSelector,
 	DocumentSymbolParams,
 	HoverParams,
@@ -185,6 +187,8 @@ class LSP {
 		this.registerMessageHandler("textDocument/hover", this.handleHoverRequest.bind(this));
 		this.registerMessageHandler("textDocument/inlayHint", this.handleInlayHintRequest.bind(this));
 		this.registerMessageHandler("textDocument/documentSymbol", this.handleDocumentSymbolRequest.bind(this));
+		this.registerMessageHandler("textDocument/documentHighlight", this.handleDocumentHighlightRequest.bind(this));
+		this.registerMessageHandler("textDocument/definition", this.handleDefinitionRequest.bind(this));
 	}
 
 	private searchForTcl3ConfigPath(folderPath: string): string {
@@ -367,6 +371,22 @@ class LSP {
 
 	private handleWorkspaceFoldersChanged(message: RequestMessage, payload: DidChangeWorkspaceFoldersParams) {
 		console.log("Workspace folders changed:", payload);
+	}
+
+	private handleDocumentHighlightRequest(message: RequestMessage, payload: DocumentHighlightParams) {
+		const uri = cleanUri(payload.textDocument.uri);
+		const docHighlights: DocumentHighlight[] = this.analyzer.getDocumentHighlights(uri, payload.position);
+		return docHighlights;
+	}
+
+	private handleDefinitionRequest(message: RequestMessage, payload: DefinitionParams) {
+		const uri = cleanUri(payload.textDocument.uri);
+		const def: DefinitionLink = this.analyzer.getDefinitionForPosition(uri, payload.position);
+		if (!def) return null;
+
+		def.targetUri = uncleanUri(def.targetUri);
+
+		return def;
 	}
 
 	public readFile(filePath: string): string {

@@ -395,12 +395,11 @@ class FunctionContext implements IType {
 		if (!this.isDefined(ref.identifier))
 			throw new Error(`Local variable '${ref.identifierToken.value}' is not defined in function '${this.nameToken.value}'.`);
 
-		return new VariableDetailInformation(
+		return VariableDetailInformation.VariableReference(
 			this.getRefId(ref.identifier, ref.identifierToken),
 			ref.identifierToken,
 			this.getTypeOfLocal(ref.identifier, ref.identifierToken),
-			this.isParameter(ref.identifier),
-			null
+			this.isParameter(ref.identifier)
 		);
 	}
 
