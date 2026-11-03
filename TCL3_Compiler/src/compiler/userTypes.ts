@@ -19,6 +19,7 @@ interface StructField {
 	refId: string;
 	type: ASTTypeRef;
 	offset: number;
+	nameToken: Token;
 }
 
 class Struct implements IType {
@@ -31,13 +32,21 @@ class Struct implements IType {
 
 	constructor(
 		private compiler: Compiler,
-		private def: StructDeclaration
+		public readonly definition: StructDeclaration
 	) {
-		this.name = def.name;
-		this.nameToken = def.nameToken;
-		def.fields.forEach(field => {
+		this.name = definition.name;
+		this.nameToken = definition.nameToken;
+		definition.fields.forEach(field => {
 			const size = this.compiler.resolveTypeSize(field.type);
-			this.fields.set(field.name, { type: field.type, offset: this.size, refId: uuidv4() });
+
+			const structField: StructField = {
+				type: field.type,
+				offset: this.size,
+				refId: uuidv4(),
+				nameToken: field.nameToken
+			};
+
+			this.fields.set(field.name, structField);
 			this.size += size;
 		});
 	}
@@ -47,7 +56,7 @@ class Struct implements IType {
 	}
 
 	public buildMethods() {
-		this.def.methods.forEach(method => {
+		this.definition.methods.forEach(method => {
 			const funcCtx = this.compiler.handleFunctionDeclaration(method);
 			funcCtx.methodForStruct = this;
 
@@ -67,11 +76,15 @@ class Struct implements IType {
 		});
 	}
 
+	public static getHoverDetailOfField(field: StructField): string {
+		return `${field.nameToken.value}: ${typeToStr(field.type)}`;
+	}
+
 	public getHoverDetail(): string {
 		let detail = `struct ${this.nameToken.value} {\n`;
 
 		this.fields.forEach((field, name) => {
-			detail += `\t${name}: ${typeToStr(field.type)};\n`;
+			detail += `\t${Struct.getHoverDetailOfField(field)};\n`;
 		});
 
 		this.methods.forEach((methodList, name) => {

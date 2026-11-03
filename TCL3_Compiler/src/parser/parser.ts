@@ -323,14 +323,15 @@ class Parser {
 			}
 		}
 
-		this.tokenStream.consumeTV(TokenType.Symbol, "}");
+		const endBracket = this.tokenStream.consumeTV(TokenType.Symbol, "}");
 
 		const structDecl: StructDeclaration = {
 			type: ASTType.StructDeclaration,
 			name: name,
 			nameToken: nameToken,
 			fields: fields,
-			methods: methods
+			methods: methods,
+			bodyEndIndex: endBracket.end
 		};
 
 		return structDecl;
@@ -402,7 +403,7 @@ class Parser {
 			returnType = this.parseTypeRef().type;
 		}
 
-		let { body, bracketed } = this.parseOptionallyBracketedBlock();
+		let { body, bracketed, endIndex } = this.parseOptionallyBracketedBlock();
 
 		if (!bracketed) body = [{ type: ASTType.ReturnStatement, expression: body[0] }];
 
@@ -415,7 +416,8 @@ class Parser {
 			body: body,
 			static: staticKw !== null,
 			staticKeyword: staticKw,
-			closeParenToken: closeParenToken
+			closeParenToken: closeParenToken,
+			bodyEndIndex: endIndex
 		};
 
 		return this.attachLocation(funcDecl, startTokenIndex);
@@ -491,7 +493,7 @@ class Parser {
 		return args;
 	}
 
-	private parseOptionallyBracketedBlock(): { body: AST[]; bracketed: boolean } {
+	private parseOptionallyBracketedBlock(): { body: AST[]; bracketed: boolean; endIndex: number } {
 		const peaked = this.tokenStream.peak();
 		const bracketed = peaked.type == TokenType.Symbol && peaked.value == "{";
 		if (bracketed) {
@@ -504,13 +506,14 @@ class Parser {
 				pushIfDef(body, this.parseStatement());
 			}
 
-			this.tokenStream.consumeTV(TokenType.Symbol, "}");
+			const closeToken = this.tokenStream.consumeTV(TokenType.Symbol, "}");
 
-			return { body, bracketed };
+			return { body, bracketed: true, endIndex: closeToken.end };
 		} else {
 			const body: AST[] = [];
 			pushIfDef(body, this.parseStatement());
-			return { body, bracketed };
+			const semi = this.tokenStream.consumeTV(TokenType.Symbol, ";");
+			return { body, bracketed: false, endIndex: semi.end };
 		}
 	}
 

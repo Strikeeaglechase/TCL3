@@ -19,6 +19,7 @@ import {
 	DocumentDiagnosticParams,
 	DocumentDiagnosticReport,
 	DocumentSelector,
+	DocumentSymbolParams,
 	HoverParams,
 	InitializeParams,
 	InitializeResult,
@@ -183,6 +184,7 @@ class LSP {
 		// this.registerMessageHandler("textDocument/completion", this.handleCompletionRequest.bind(this));
 		this.registerMessageHandler("textDocument/hover", this.handleHoverRequest.bind(this));
 		this.registerMessageHandler("textDocument/inlayHint", this.handleInlayHintRequest.bind(this));
+		this.registerMessageHandler("textDocument/documentSymbol", this.handleDocumentSymbolRequest.bind(this));
 	}
 
 	private searchForTcl3ConfigPath(folderPath: string): string {
@@ -311,6 +313,14 @@ class LSP {
 
 		// const inlayHints: InlayHint[] = hints;
 		return hints;
+	}
+
+	private handleDocumentSymbolRequest(message: RequestMessage, payload: DocumentSymbolParams) {
+		const uri = cleanUri(payload.textDocument.uri);
+		const symbols = this.analyzer.getDocumentSymbols(uri);
+
+		console.log(`Sending ${symbols.length} document symbols for ${uri}`);
+		return symbols;
 	}
 
 	private handleDiagnosticRequest(message: RequestMessage, payload: DocumentDiagnosticParams) {

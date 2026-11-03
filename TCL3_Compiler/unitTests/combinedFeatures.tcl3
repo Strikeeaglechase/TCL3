@@ -37,9 +37,9 @@ struct Item {
 	weight: int;
 }
 
-fn increment(value: int): int value + 1
+fn increment(value: int): int value + 1;
 
-fn double(value: int): int value * 2
+fn double(value: int): int value * 2;
 
 fn makeItem(value: int, weight: int): Item {
 	let item: Item = {value: value, weight: weight};

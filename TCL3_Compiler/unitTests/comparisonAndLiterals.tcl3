@@ -19,7 +19,7 @@
 // EXPECT: 1
 // EXPECT: 2
 
-fn readInt(value: int): int value
+fn readInt(value: int): int value;
 
 fn readIntPointer(value: int*): int {return *value;}
 

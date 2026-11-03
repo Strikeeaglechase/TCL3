@@ -4,8 +4,8 @@
 // EXPECT: 16
 // EXPECT: 32
 
-fn add(a: int, b: int) a+b
-fn sub(a: int, b: int) a-b
+fn add(a: int, b: int) a+b;
+fn sub(a: int, b: int) a-b;
 
 fn main(): void {
 	let ops: Fn<int, int, int>* = ▸Fn<int, int, int>*◂malloc(2);

@@ -52,8 +52,10 @@ export interface FunctionDeclaration extends ASTNode {
 	returnType: ASTTypeRef;
 	body: AST[];
 	static: boolean;
+
 	staticKeyword: Token;
 	closeParenToken: Token;
+	bodyEndIndex: number;
 }
 
 export interface WrappedTypeRef extends ASTNode {
@@ -102,6 +104,7 @@ export interface StructDeclaration extends ASTNode {
 	nameToken: Token;
 	fields: { name: string; nameToken: Token; type: ASTTypeRef; location: SourceSpan }[];
 	methods: FunctionDeclaration[];
+	bodyEndIndex: number;
 }
 
 export interface EnumDeclaration extends ASTNode {

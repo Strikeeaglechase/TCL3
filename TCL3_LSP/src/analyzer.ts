@@ -3,6 +3,7 @@ import path from "path";
 import { Compiler } from "tlc3/compiler/compiler.js";
 import { FunctionContext } from "tlc3/compiler/functionContext.js";
 import { typeToStr } from "tlc3/compiler/types.js";
+import { Struct } from "tlc3/compiler/userTypes.js";
 import { TCl3Error } from "tlc3/errors.js";
 import { Linker } from "tlc3/linker/linker.js";
 import { AST, ASTType, FunctionDeclaration, Program, VariableDeclaration } from "tlc3/parser/ast.js";
@@ -10,9 +11,9 @@ import { Token, TokenType } from "tlc3/parser/tokenizer.js";
 import { walk } from "tlc3/parser/walker.js";
 
 import { Document } from "./document.js";
-import { SemanticTokenTypes } from "./extraLspTypes.js";
+import { SemanticTokenTypes, SymbolKind } from "./extraLspTypes.js";
 import { LSP } from "./index.js";
-import { InlayHint, Position, Range } from "./lspTypes/api.js";
+import { DocumentSymbol, InlayHint, Position, Range } from "./lspTypes/api.js";
 
 interface TokenTypeRange {
 	start: number;
@@ -171,6 +172,89 @@ class Analyzer {
 		});
 
 		return inlayHints;
+	}
+
+	public getDocumentSymbols(fileUri: string): DocumentSymbol[] {
+		const symbols: DocumentSymbol[] = [];
+		const file = this.linker.getFileByUri(fileUri);
+		const document = this.lsp.getDocument(fileUri);
+
+		this.compiler.structs.forEach(struct => {
+			if (struct.definition.location.fileIdentifier !== file.identifier) return;
+
+			symbols.push(this.getSymbolOfStruct(document, struct));
+		});
+
+		this.compiler.functions.forEach(funcCtxArr => {
+			funcCtxArr.forEach(funcCtx => {
+				if (funcCtx.definition.location.fileIdentifier !== file.identifier) return;
+
+				symbols.push(this.getSymbolOfFunction(document, funcCtx));
+			});
+		});
+
+		return symbols;
+	}
+
+	private getSymbolOfFunction(document: Document, funcCtx: FunctionContext) {
+		const symbol: DocumentSymbol = {
+			name: funcCtx.nameToken.value,
+			detail: funcCtx.getHoverDetail(),
+			kind: funcCtx.methodForStruct != null ? SymbolKind.Method : SymbolKind.Function,
+			range: {
+				start: document.indexToPosition(funcCtx.definition.nameToken.start),
+				end: document.indexToPosition(funcCtx.definition.bodyEndIndex)
+			},
+			selectionRange: {
+				start: document.indexToPosition(funcCtx.definition.nameToken.start),
+				end: document.indexToPosition(funcCtx.definition.nameToken.end)
+			}
+		};
+
+		return symbol;
+	}
+
+	private getSymbolOfStruct(document: Document, struct: Struct) {
+		const children: DocumentSymbol[] = [];
+
+		struct.methods.forEach(methodList => {
+			methodList.forEach(method => {
+				children.push(this.getSymbolOfFunction(document, method));
+			});
+		});
+
+		struct.fields.forEach((field, name) => {
+			children.push({
+				name: name,
+				detail: Struct.getHoverDetailOfField(field),
+				kind: SymbolKind.Property,
+				range: {
+					start: document.indexToPosition(field.nameToken.start),
+					end: document.indexToPosition(field.nameToken.end)
+				},
+				selectionRange: {
+					start: document.indexToPosition(field.nameToken.start),
+					end: document.indexToPosition(field.nameToken.end)
+				}
+			});
+		});
+
+		const symbol: DocumentSymbol = {
+			name: struct.nameToken.value,
+			detail: struct.getHoverDetail(),
+			kind: SymbolKind.Class,
+			range: {
+				start: document.indexToPosition(struct.nameToken.start),
+				end: document.indexToPosition(struct.definition.bodyEndIndex)
+			},
+			selectionRange: {
+				start: document.indexToPosition(struct.nameToken.start),
+				end: document.indexToPosition(struct.nameToken.end)
+			},
+			children: children
+		};
+
+		return symbol;
 	}
 
 	private getVariableInlayHint(varDecl: VariableDeclaration, document: Document): InlayHint {

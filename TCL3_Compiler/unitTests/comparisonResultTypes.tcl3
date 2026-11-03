@@ -1,6 +1,7 @@
 // EXPECT: 1
 // EXPECT: 1
 // EXPECT: 1
+// EXPECT: 2
 // ISS-030
 
 enum Choice {
@@ -8,11 +9,12 @@ enum Choice {
 	b
 }
 
-fn classify(value: bool): int 1
-fn classify(value: Choice): int 2
+fn classify(value: bool): int 1;
+fn classify(value: Choice): int 2;
 
 fn main(): void {
 	out classify(Choice.a == Choice.b);
 	out classify(!Choice.a);
 	out classify(Choice.a || Choice.b);
+	out classify(Choice.a);
 }

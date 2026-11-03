@@ -19,7 +19,7 @@ struct Test {
 	sub: SubStruct;
 }
 
-fn identity(value: int): int value
+fn identity(value: int): int value;
 
 fn bump(counter: int*): int {
 	*counter += 1;

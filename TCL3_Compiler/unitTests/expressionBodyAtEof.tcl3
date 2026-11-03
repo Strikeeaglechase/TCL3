@@ -5,4 +5,4 @@ fn main(): void {
 	out 1;
 }
 
-fn finalFunction(): int 3
+fn finalFunction(): int 3;

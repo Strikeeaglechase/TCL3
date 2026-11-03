@@ -155,8 +155,8 @@ class Compiler {
 	private currentContext: FunctionContext = null;
 
 	public builder: IRBuilder = new IRBuilder();
-	protected structs: Map<string, Struct> = new Map();
-	private enums: Map<string, Enum> = new Map();
+	public structs: Map<string, Struct> = new Map();
+	public enums: Map<string, Enum> = new Map();
 	public functions: Map<string, FunctionContext[]> = new Map();
 	private mainLabel: string = mainFnName;
 
