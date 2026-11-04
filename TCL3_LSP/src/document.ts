@@ -16,7 +16,7 @@ class Document {
 		this._content = value;
 	}
 
-	public _version: number = 0;
+	public _version: number;
 	public get version() {
 		return this._version;
 	}

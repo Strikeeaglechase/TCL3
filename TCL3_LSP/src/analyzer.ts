@@ -108,7 +108,7 @@ class Analyzer {
 
 	public getHoverDetailAtIndex(fileUri: string, index: number): { detail: string; start: number; end: number } {
 		const targetFile = this.linker.getFileByUri(fileUri);
-		if (!targetFile) throw new Error(`File not found for URI: ${fileUri}`);
+		if (!targetFile) return null;
 
 		const { detail, token } = this.getTokenDetailAtIndex(targetFile.identifier, index);
 		if (!detail) return null;
@@ -124,8 +124,9 @@ class Analyzer {
 	}
 
 	public getDocumentHighlights(fileUri: string, position: Position): DocumentHighlight[] {
-		const document = this.lsp.getDocument(fileUri);
 		const file = this.linker.getFileByUri(fileUri);
+		if (!file) return [];
+		const document = this.lsp.getDocument(fileUri);
 
 		const index = document.positionToIndex(position);
 		const { detail } = this.getTokenDetailAtIndex(file.identifier, index);
@@ -146,8 +147,9 @@ class Analyzer {
 	}
 
 	public getDefinitionForPosition(fileUri: string, position: Position): DefinitionLink {
-		const document = this.lsp.getDocument(fileUri);
 		const file = this.linker.getFileByUri(fileUri);
+		if (!file) return null;
+		const document = this.lsp.getDocument(fileUri);
 
 		const index = document.positionToIndex(position);
 
@@ -202,6 +204,8 @@ class Analyzer {
 	public getDocumentSymbols(fileUri: string): DocumentSymbol[] {
 		const symbols: DocumentSymbol[] = [];
 		const file = this.linker.getFileByUri(fileUri);
+		if (!file) return [];
+
 		const document = this.lsp.getDocument(fileUri);
 
 		this.compiler.structs.forEach(struct => {
@@ -285,7 +289,7 @@ class Analyzer {
 	// Inlay hints
 	public getInlayHints(fileUri: string, range: Range): InlayHint[] {
 		const targetFile = this.linker.getFileByUri(fileUri);
-		if (!targetFile) throw new Error(`File not found for URI: ${fileUri}`);
+		if (!targetFile) return [];
 
 		const document = this.lsp.getDocument(fileUri);
 
@@ -337,7 +341,7 @@ class Analyzer {
 	// Semantic token types
 	public getTokenTypeRanges(fileUri: string): TokenTypeRange[] {
 		const targetFile = this.linker.getFileByUri(fileUri);
-		if (!targetFile) throw new Error(`File not found for URI: ${fileUri}`);
+		if (!targetFile) return [];
 
 		const targetFileRanges = this.tokenTypeRanges.filter(r => r.fileIdentifier == targetFile.identifier);
 		const nonOverlappingRanges: TokenTypeRange[] = [];

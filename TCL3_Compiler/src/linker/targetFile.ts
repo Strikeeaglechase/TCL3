@@ -4,7 +4,7 @@ import path from "path";
 import { ParserError, TokenizerError } from "../errors.js";
 import { Program } from "../parser/ast.js";
 import { Parser } from "../parser/parser.js";
-import { Token, Tokenizer } from "../parser/tokenizer.js";
+import { Export, Include, Token, Tokenizer } from "../parser/tokenizer.js";
 import { LinkerOptions } from "./linker.js";
 
 let globalFileCounter = 0;
@@ -12,8 +12,8 @@ class TargetFile {
 	public readonly filePath: string;
 	public readonly identifier: string;
 	private content: string;
-	public readonly includes: string[];
-	public readonly exports: string[];
+	public readonly includes: Include[];
+	public readonly exports: Export[];
 
 	public dependencies: TargetFile[] = [];
 

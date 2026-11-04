@@ -68,11 +68,29 @@ interface Token {
 	fileIdentifier: string;
 }
 
+interface Include {
+	path: string;
+	start: number;
+	end: number;
+}
+
+interface Export {
+	identifier: string;
+	start: number;
+	end: number;
+}
+
+interface TokenizeResult {
+	tokens: Token[];
+	exports: Export[];
+	includes: Include[];
+}
+
 class Tokenizer {
 	private charStream: Stream<string>;
 	private defines: Map<string, Token[]> = new Map();
-	private exports: string[] = [];
-	private includes: string[] = [];
+	private exports: Export[] = [];
+	private includes: Include[] = [];
 	private tokens: Token[] = [];
 
 	public errors: TokenizerError[] = [];
@@ -85,7 +103,7 @@ class Tokenizer {
 		this.charStream = new Stream(input.split(""));
 	}
 
-	public tokenize() {
+	public tokenize(): TokenizeResult {
 		while (!this.charStream.eof()) {
 			const startPos = this.charStream.position;
 			// May be multiple due to preprocessor define
@@ -203,7 +221,8 @@ class Tokenizer {
 	}
 
 	private readPreprocessorDirective() {
-		const preprocessor = this.charStream.readUntilAndConsume(" ").join("");
+		const preprocessor = this.charStream.readUntil(char => char == " " || char == "\n").join("");
+		this.charStream.next(); // Skip the space after the preprocessor directive
 		switch (preprocessor) {
 			case PreprocessDirectiveKind.Define:
 				const defineName = this.charStream.readUntilAndConsume(" ").join("");
@@ -215,13 +234,15 @@ class Tokenizer {
 
 				return { type: TokenType.PreprocessorDirective, value: `${preprocessorDirectiveStart}${preprocessor} ${defineName} ${defineValue}` };
 			case PreprocessDirectiveKind.Export:
+				const exportStart = this.charStream.position;
 				const exportListLine = this.charStream.readUntilAndConsume("\n").join("").trim();
 				const exportList = exportListLine.split(",").map(s => s.trim());
-				this.exports.push(...exportList);
+				this.exports.push(...exportList.map(identifier => ({ identifier: identifier, start: exportStart, end: this.charStream.position })));
 				return { type: TokenType.PreprocessorDirective, value: `${preprocessorDirectiveStart}${preprocessor} ${exportListLine}` };
 			case PreprocessDirectiveKind.Include:
+				const includeStart = this.charStream.position;
 				const includeFile = this.charStream.readUntilAndConsume("\n").join("").trim();
-				this.includes.push(includeFile);
+				this.includes.push({ path: includeFile, start: includeStart, end: this.charStream.position });
 				return { type: TokenType.PreprocessorDirective, value: `${preprocessorDirectiveStart}${preprocessor} ${includeFile}` };
 			default:
 				throw new Error(`Unknown preprocessor directive: ${preprocessor}`);
@@ -236,4 +257,16 @@ class Tokenizer {
 	}
 }
 
-export { Tokenizer, TokenType, Token, operandPrecedence, selfAssignMathOps, resultTypeIsBoolOperands, preprocessorDirectiveStart, mainFnName };
+export {
+	Tokenizer,
+	TokenType,
+	Token,
+	TokenizeResult,
+	Include,
+	Export,
+	operandPrecedence,
+	selfAssignMathOps,
+	resultTypeIsBoolOperands,
+	preprocessorDirectiveStart,
+	mainFnName
+};

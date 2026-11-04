@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 
 import { Compiler } from "../compiler/compiler.js";
-import { TCl3Error } from "../errors.js";
+import { LinkerError, TCl3Error } from "../errors.js";
 import { IRProgram } from "../ir/ir.js";
 import { IROptimizer } from "../ir/irOptimizer.js";
 import { ASTType, Program } from "../parser/ast.js";
@@ -37,6 +37,8 @@ class Linker {
 	private readonly options: LinkerOptions;
 	private readonly entryFile: TargetFile;
 
+	public linkerErrors: LinkerError[] = [];
+
 	constructor(targetFilePath: string, options: Partial<LinkerOptions> = {}) {
 		this.options = { ...defaultLinkerOptions, ...options };
 		this.entryFile = this.addFile(targetFilePath);
@@ -70,7 +72,7 @@ class Linker {
 		const astBlocks: Program[] = [];
 		let nextParseFile: TargetFile = this.getNextFileForParse();
 		while (nextParseFile) {
-			astBlocks.push(nextParseFile.parse(publicSymbols));
+			astBlocks.push(nextParseFile.parse(publicSymbols.map(sym => sym.identifier)));
 			nextParseFile = this.getNextFileForParse();
 		}
 
@@ -99,12 +101,20 @@ class Linker {
 		this.files.push(file);
 		this.identifierToFileMap.set(file.identifier, file);
 
-		const dependencies = file.includes.map(includePath => {
-			const resolvedIncludePath = this.options.pathResolver(path.join(path.dirname(filePath), includePath));
+		const dependencies = file.includes.map(include => {
+			const resolvedIncludePath = this.options.pathResolver(path.join(path.dirname(filePath), include.path));
+			if (!fs.existsSync(resolvedIncludePath)) {
+				const error = new Error(`Included file not found: ${resolvedIncludePath}, included from: ${filePath}`);
+				const linkerError = new LinkerError(error, { startIndex: include.start, endIndex: include.end, fileIdentifier: file.identifier });
+				this.linkerErrors.push(linkerError);
+				if (this.options.throwOnError) throw linkerError;
+				return null;
+			}
+
 			return this.addFile(resolvedIncludePath);
 		});
 
-		file.dependencies = dependencies;
+		file.dependencies = dependencies.filter(dep => dep != null);
 
 		return file;
 	}
@@ -123,6 +133,8 @@ class Linker {
 			errors.push(...file.tokenizerErrors);
 			errors.push(...file.parserErrors);
 		});
+
+		errors.push(...this.linkerErrors);
 
 		return errors;
 	}

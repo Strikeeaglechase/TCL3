@@ -18,7 +18,7 @@ async function startClient() {
 		],
 		synchronize: {
 			configurationSection: "tcl3",
-			fileEvents: workspace.createFileSystemWatcher("**/*.tcl3")
+			fileEvents: [workspace.createFileSystemWatcher("**/*.tcl3"), workspace.createFileSystemWatcher("**/tcl3config.json")]
 		}
 	};
 

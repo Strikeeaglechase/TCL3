@@ -354,7 +354,7 @@ class LSP {
 				kind: "full",
 				uri: uncleanUri(filePath),
 				items: errorList,
-				version: document.version
+				version: document?.version ?? null
 			});
 
 			te += errorList.length;
@@ -366,7 +366,13 @@ class LSP {
 	}
 
 	private handleWorkspaceWatchedFilesChanged(message: RequestMessage, payload: DidChangeWatchedFilesParams) {
-		// console.log(payload);
+		payload.changes.forEach(change => {
+			if (change.uri.toLowerCase().endsWith(tcl3ConfigFileName)) {
+				console.log(chalk.yellow(`tcl3Config.json changed, reanalyzing`));
+				this.directLoadContentCache.delete(this.tcl3ConfigPath);
+				this.reanalyze();
+			}
+		});
 	}
 
 	private handleWorkspaceFoldersChanged(message: RequestMessage, payload: DidChangeWorkspaceFoldersParams) {
@@ -391,7 +397,6 @@ class LSP {
 
 	public readFile(filePath: string): string {
 		filePath = cleanUri(filePath);
-		console.log(`Read: ${filePath}`);
 		if (this.files.has(filePath)) {
 			return this.files.get(filePath).content;
 		}
@@ -410,7 +415,15 @@ class LSP {
 
 	public getDocument(filePath: string) {
 		filePath = cleanUri(filePath);
-		return this.files.get(filePath);
+		const loadedFile = this.files.get(filePath);
+		if (loadedFile) return loadedFile;
+
+		const content = this.readFile(filePath);
+		const doc = new Document(this, filePath);
+		doc.handleFullText(content, -1);
+		this.files.set(filePath, doc);
+
+		return doc;
 	}
 
 	private getRawMessageHandler() {

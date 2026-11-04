@@ -32,4 +32,10 @@ class CompilerError extends TCl3Error {
 	}
 }
 
-export { TCl3Error, TokenizerError, ParserError, SourceSpan, CompilerError };
+class LinkerError extends TCl3Error {
+	constructor(orgError: Error, location: SourceSpan) {
+		super(orgError, location);
+	}
+}
+
+export { TCl3Error, TokenizerError, ParserError, SourceSpan, CompilerError, LinkerError };
