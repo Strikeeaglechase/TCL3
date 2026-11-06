@@ -2,18 +2,19 @@ import chalk from "chalk";
 import path from "path";
 import { Compiler, TokenDetailInfo, VariableDetailInformation } from "tlc3/compiler/compiler.js";
 import { FunctionContext } from "tlc3/compiler/functionContext.js";
-import { typeToStr } from "tlc3/compiler/types.js";
-import { Struct } from "tlc3/compiler/userTypes.js";
+import { primitiveTypeNames, typeToStr } from "tlc3/compiler/types.js";
+import { Enum, Struct } from "tlc3/compiler/userTypes.js";
 import { TCl3Error } from "tlc3/errors.js";
 import { Linker } from "tlc3/linker/linker.js";
+import { TargetFile } from "tlc3/linker/targetFile.js";
 import { AST, ASTType, FunctionDeclaration, Program, VariableDeclaration } from "tlc3/parser/ast.js";
-import { Token, TokenType } from "tlc3/parser/tokenizer.js";
+import { keywords, Token, TokenType, topLevelKeywords } from "tlc3/parser/tokenizer.js";
 import { walk } from "tlc3/parser/walker.js";
 
 import { Document } from "./document.js";
-import { SemanticTokenTypes, SymbolKind } from "./extraLspTypes.js";
+import { CompletionItemKind, SemanticTokenTypes, SymbolKind } from "./extraLspTypes.js";
 import { LSP } from "./index.js";
-import { DefinitionLink, DocumentHighlight, DocumentSymbol, InlayHint, Position, Range } from "./lspTypes/api.js";
+import { CompletionItem, DefinitionLink, DocumentHighlight, DocumentSymbol, InlayHint, Position, Range } from "./lspTypes/api.js";
 
 interface TokenTypeRange {
 	start: number;
@@ -73,6 +74,15 @@ const tokenAt = (type: SemanticTokenTypes, location: ILocatable): TokenTypeRange
 	};
 };
 
+function getTopLevelKeywordCompletions(): CompletionItem[] {
+	return topLevelKeywords.map(kw => {
+		return {
+			label: kw,
+			kind: CompletionItemKind.Keyword
+		};
+	});
+}
+
 class Analyzer {
 	private readonly linker: Linker;
 	private readonly program: Program;
@@ -114,7 +124,7 @@ class Analyzer {
 		if (!detail) return null;
 
 		const detailText = detail.getHoverDetail();
-		if (!detail) return null;
+		if (!detailText) return null;
 
 		return {
 			detail: `\`\`\`rust\n${detailText}\n\`\`\``,
@@ -198,6 +208,170 @@ class Analyzer {
 		}
 
 		return null;
+	}
+
+	private getDetailsOfSymbolsAvailableAt(document: Document, file: TargetFile, position: Position) {
+		const index = document.positionToIndex(position);
+
+		const globalSymbolTokens = file.getGlobalSymbolsAvailable();
+		const globalSymbols = globalSymbolTokens.map(token => {
+			const detail = this.compiler.getTokenDetail(token);
+
+			if (!detail) console.log(`No detail resolved for: ${token.value}`);
+
+			return detail;
+		});
+
+		const context = this.compiler.getContextAtIndex(index);
+		// Not in function, can only be creating a struct, function, or enum
+		if (!context) return globalSymbols;
+		const contextSymbols = context.getAutocompleteSymbols();
+
+		const allSymbols = [...contextSymbols, ...globalSymbols].filter(symbol => symbol != null);
+		return allSymbols;
+	}
+
+	private getNonTriggerCharAutoComplete(document: Document, file: TargetFile, position: Position): CompletionItem[] {
+		const allSymbols = this.getDetailsOfSymbolsAvailableAt(document, file, position);
+		if (!allSymbols) return getTopLevelKeywordCompletions();
+
+		const completionItems: CompletionItem[] = allSymbols.map(symbol => {
+			if (!symbol) return null;
+			return {
+				label: symbol.nameToken.value,
+				detail: symbol.getHoverDetail(),
+				kind: symbol instanceof FunctionContext ? CompletionItemKind.Function : CompletionItemKind.Variable
+			};
+		});
+
+		const completionKeywords: CompletionItem[] = keywords.map(kw => {
+			return {
+				label: kw,
+				kind: CompletionItemKind.Keyword
+			};
+		});
+
+		return [...completionItems, ...completionKeywords];
+	}
+
+	private getPreviousTokenBeforePosition(document: Document, file: TargetFile, position: Position): Token {
+		const token = this.tokens.find(
+			t => t.fileIdentifier == file.identifier && t.start <= document.positionToIndex(position) - 1 && t.end >= document.positionToIndex(position) - 1
+		);
+
+		return token;
+	}
+
+	public getCompletionsForPosition(fileUri: string, position: Position, triggerCharacter?: string): CompletionItem[] {
+		const file = this.linker.getFileByUri(fileUri);
+		if (!file) return [];
+		const document = this.lsp.getDocument(fileUri);
+
+		// Simple check for local variables/functions/etc. Everything in context
+		if (!triggerCharacter) return this.getNonTriggerCharAutoComplete(document, file, position);
+
+		if (triggerCharacter == " ") {
+			const prevToken = this.getPreviousTokenBeforePosition(document, file, position);
+			if (prevToken) triggerCharacter = prevToken.value;
+		}
+
+		if (triggerCharacter == ":") {
+			const symbols = this.getDetailsOfSymbolsAvailableAt(document, file, position);
+			// console.log(symbols);
+			if (!symbols) return [];
+
+			const typeSymbols = symbols.filter(symbol => symbol instanceof Struct || symbol instanceof Enum);
+			const builtinTypeCompletions: CompletionItem[] = primitiveTypeNames.map(typeName => {
+				return {
+					kind: CompletionItemKind.Keyword,
+					label: typeName
+				};
+			});
+
+			const typeCompletions: CompletionItem[] = typeSymbols.map(symbol => {
+				return {
+					kind: CompletionItemKind.Class,
+					label: symbol.nameToken.value
+				};
+			});
+
+			return [...typeCompletions, ...builtinTypeCompletions];
+		}
+
+		if (triggerCharacter != ".") return [];
+
+		// Get token before trigger character
+		const token = this.getPreviousTokenBeforePosition(document, file, position);
+		if (!token) return [];
+
+		const detail = this.compiler.getTokenDetail(token);
+		if (!detail) return [];
+
+		// Static function calls
+		if (detail instanceof Struct) {
+			const staticMethods: FunctionContext[] = [];
+			detail.methods.forEach(methodList => {
+				methodList.forEach(method => {
+					if (method.isStatic) staticMethods.push(method);
+				});
+			});
+
+			const staticMethodCompletions: CompletionItem[] = staticMethods.map(method => {
+				return {
+					kind: CompletionItemKind.Method,
+					label: method.nameToken.value,
+					detail: method.getHoverDetail()
+				};
+			});
+
+			return staticMethodCompletions;
+		}
+
+		// Enum variants
+		if (detail instanceof Enum) {
+			const enumVariantCompletions: CompletionItem[] = [];
+			detail.variants.forEach((variant, name) => {
+				enumVariantCompletions.push({
+					kind: CompletionItemKind.EnumMember,
+					label: name,
+					detail: `(variant) ${detail.nameToken.value}::${name}`
+				});
+			});
+		}
+
+		// Field ref
+		if (detail instanceof VariableDetailInformation) {
+			const type = detail.typeRef;
+			if (type.type != ASTType.RawTypeRef) {
+				console.log(`Non raw ref: `, type);
+				return [];
+			}
+
+			const struct = this.compiler.structs.get(type.rawType);
+			const completions: CompletionItem[] = [];
+			struct.fields.forEach((field, name) => {
+				completions.push({
+					kind: CompletionItemKind.Property,
+					label: name,
+					detail: Struct.getHoverDetailOfField(field)
+				});
+			});
+
+			struct.methods.forEach(methodList => {
+				methodList.forEach(method => {
+					completions.push({
+						kind: CompletionItemKind.Method,
+						label: method.nameToken.value,
+						detail: method.getHoverDetail()
+					});
+				});
+			});
+
+			return completions;
+		}
+
+		console.log(`Unhandled detail type: ${detail.constructor.name}`, detail);
+		return [];
 	}
 
 	// Document symbols
@@ -475,6 +649,7 @@ class Analyzer {
 			errors.set(file.filePath, []);
 		});
 
+		let errorCount = 0;
 		const registerError = (error: TCl3Error) => {
 			const filePath = fileIdentToUri.get(error.location.fileIdentifier);
 			const errorDocument = this.lsp.getDocument(filePath);
@@ -486,12 +661,14 @@ class Analyzer {
 					end: errorDocument.indexToPosition(error.location.endIndex)
 				}
 			});
+
+			errorCount++;
 		};
 
 		this.linker.getErrors().forEach(error => registerError(error));
 		this.compiler.errors.forEach(error => registerError(error));
 
-		return errors;
+		return { errors, errorCount };
 	}
 }
 

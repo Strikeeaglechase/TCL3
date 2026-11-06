@@ -121,6 +121,7 @@ class Enum implements IType {
 
 	constructor(def: EnumDeclaration) {
 		this.name = def.name;
+		this.nameToken = def.nameToken;
 		def.variants.forEach(variant => {
 			this.variants.set(variant.name, { value: variant.value, refId: uuidv4() });
 		});

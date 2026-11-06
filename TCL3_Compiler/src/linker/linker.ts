@@ -114,7 +114,7 @@ class Linker {
 			return this.addFile(resolvedIncludePath);
 		});
 
-		file.dependencies = dependencies.filter(dep => dep != null);
+		file.setDependencies(dependencies.filter(dep => dep != null));
 
 		return file;
 	}

@@ -4,11 +4,15 @@
 // EXPECT: 1
 // EXPECT: 2
 
+struct SubStruct {
+	z: int;
+}
+
 struct Point {
 	x: int;
 	y: int;
 
-	// p: Point;
+	sub: SubStruct;
 
 	fn get_x(): int {
 		return this->x;
@@ -59,9 +63,10 @@ fn main(): void {
 
 	let test = points[0];
 
+	test.scale()
+
 	out points[0].get_x();
 	out points[1].get_y();
-
 
 	points[0].scale(2);
 	out points[0].get_y();

@@ -1,7 +1,8 @@
 import { TokenizerError } from "../errors.js";
 import { Stream } from "../stream.js";
 
-const keywords = ["if", "else", "elif", "while", "for", "return", "fn", "let", "struct", "enum", "out", "break", "continue", "static"];
+const topLevelKeywords = ["fn", "struct", "enum"];
+const keywords = [...topLevelKeywords, "if", "else", "elif", "while", "for", "return", "let", "out", "break", "continue", "static"];
 const operands = ["+", "-", "*", "/", "%", "|", "&", "^", "||", "&&", "!", "==", "!=", "<", ">", "<=", ">=", "~", ">>", "<<"];
 const symbols = ["(", ")", "[", "]", "{", "}", ";", ",", ".", "=", ":", "->", "+=", "-=", "*=", "/=", "%=", "|=", "&=", "^=", "▸", "◂"];
 const selfAssignMathOps = ["+=", "-=", "*=", "/=", "%=", "&=", "|=", "^="];
@@ -268,5 +269,7 @@ export {
 	selfAssignMathOps,
 	resultTypeIsBoolOperands,
 	preprocessorDirectiveStart,
-	mainFnName
+	mainFnName,
+	keywords,
+	topLevelKeywords
 };

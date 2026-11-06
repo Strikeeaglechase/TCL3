@@ -1,4 +1,4 @@
 {
-	"entrypoint": "./reFuncTest.tcl3",
+	"entrypoint": "./funcTest.tcl3",
 	"output": "./prog.ir"
 }

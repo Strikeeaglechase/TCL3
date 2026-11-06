@@ -36,8 +36,8 @@ import { mainFnName, resultTypeIsBoolOperands, Token, TokenType } from "../parse
 import { BuiltInFunction, builtInFunctions } from "./builtInFunctions.js";
 import { BuiltInTypeRefDetailInformation, TokenDetailInfo, VariableDetailInformation } from "./detail.js";
 import { FunctionContext } from "./functionContext.js";
-import { boolType, charType, intType, primitiveSizeMap, ptrOf, typeToStr, voidType } from "./types.js";
-import { Enum, EnumVariant, Struct } from "./userTypes.js";
+import { boolType, charType, intType, isPrimitiveTypeName, primitiveSizeMap, ptrOf, typeToStr, voidType } from "./types.js";
+import { Enum, Struct } from "./userTypes.js";
 
 function referenceToString(ref: Reference, useTokenValues = false): string {
 	let result = "";
@@ -156,6 +156,28 @@ class Compiler {
 		return def;
 	}
 
+	public getContextAtIndex(index: number): FunctionContext {
+		for (const fnList of this.functions.values()) {
+			for (const fn of fnList) {
+				if (fn.definition.nameToken.start <= index && index <= fn.definition.bodyEndIndex) {
+					return fn;
+				}
+			}
+		}
+
+		for (const struct of this.structs.values()) {
+			for (const methodList of struct.methods.values()) {
+				for (const method of methodList) {
+					if (method.definition.nameToken.start <= index && index <= method.definition.bodyEndIndex) {
+						return method;
+					}
+				}
+			}
+		}
+
+		return null;
+	}
+
 	public compile() {
 		this.builder.move(imm(255), reg(Register.memPtr));
 		this.builder.move(label(this.mainLabel), reg(Register.pc));
@@ -172,7 +194,7 @@ class Compiler {
 	public resolveTypeSize(type: ASTTypeRef) {
 		if (type.type === ASTType.WrappedTypeRef || type.type == ASTType.FunctionTypeRef) return INT_SIZE;
 
-		if (primitiveSizeMap[type.rawType] !== undefined) return primitiveSizeMap[type.rawType];
+		if (isPrimitiveTypeName(type.rawType)) return primitiveSizeMap[type.rawType];
 
 		if (this.structs.has(type.rawType)) {
 			const struct = this.structs.get(type.rawType);
@@ -1002,6 +1024,8 @@ class Compiler {
 	private handleEnumDeclaration(node: EnumDeclaration) {
 		const enumDecl = new Enum(node);
 		this.enums.set(node.name, enumDecl);
+
+		this.registerDetail(node.nameToken, enumDecl);
 	}
 
 	public inferTypeFrom(expression: AST): ASTTypeRef {
@@ -1226,6 +1250,7 @@ class Compiler {
 
 		const argSize = node.parameters.reduce((acc, param) => acc + this.resolveTypeSize(param.type), 0);
 		const funcCtx = new FunctionContext(this, node);
+		this.registerDetail(node.nameToken, funcCtx);
 		this.currentContext = funcCtx;
 
 		if (node.name != mainFnName) {
@@ -1295,7 +1320,6 @@ class Compiler {
 
 		this.currentContext = null;
 
-		this.registerDetail(node.nameToken, funcCtx);
 		return funcCtx;
 	}
 

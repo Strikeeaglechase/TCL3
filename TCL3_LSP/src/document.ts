@@ -111,7 +111,6 @@ class Document {
 		const detail = this.lsp.analyzer.getHoverDetailAtIndex(this.uri, hoverIndex);
 
 		if (!detail) return null;
-
 		const hover: Hover = {
 			contents: detail.detail,
 			range: { start: this.indexToPosition(detail.start), end: this.indexToPosition(detail.end) }

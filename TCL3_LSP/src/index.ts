@@ -9,8 +9,9 @@ import { WebSocket, WebSocketServer } from "ws";
 import { Analyzer } from "./analyzer.js";
 import { Document } from "./document.js";
 import { SemanticTokenModifiers, SemanticTokenTypes, TextDocumentSyncKind } from "./extraLspTypes.js";
-import { DefinitionLink, DocumentHighlight, SemanticTokens } from "./lspTypes/api.js";
+import { CompletionItem, DefinitionLink, DocumentHighlight, SemanticTokens } from "./lspTypes/api.js";
 import {
+	CompletionParams,
 	DefinitionParams,
 	DidChangeConfigurationParams,
 	DidChangeTextDocumentParams,
@@ -60,7 +61,7 @@ const serverCapabilities: ServerCapabilities = {
 		full: true
 	},
 	workspace: { workspaceFolders: { supported: true, changeNotifications: true } },
-	completionProvider: { triggerCharacters: [".", ">", preprocessorDirectiveStart, ":", "▸", " ", "/"], resolveProvider: false },
+	completionProvider: { triggerCharacters: [".", ">", preprocessorDirectiveStart, ":", "▸", " "], resolveProvider: false },
 	hoverProvider: true,
 	definitionProvider: true,
 	typeDefinitionProvider: true,
@@ -70,7 +71,6 @@ const serverCapabilities: ServerCapabilities = {
 	workspaceSymbolProvider: true,
 	documentHighlightProvider: true,
 	signatureHelpProvider: { triggerCharacters: ["(", ","], retriggerCharacters: [","] },
-	codeLensProvider: { resolveProvider: false },
 	inlayHintProvider: true,
 	diagnosticProvider: { documentSelector: tcl3DocumentSelectors, workspaceDiagnostics: true, interFileDependencies: true }
 };
@@ -120,6 +120,7 @@ class LSP {
 	private directLoadContentCache: Map<string, string> = new Map();
 
 	public analyzer: Analyzer;
+	private bestAnalyzer: Analyzer;
 	private tcl3ConfigPath: string;
 
 	private client: WebSocket;
@@ -189,6 +190,7 @@ class LSP {
 		this.registerMessageHandler("textDocument/documentSymbol", this.handleDocumentSymbolRequest.bind(this));
 		this.registerMessageHandler("textDocument/documentHighlight", this.handleDocumentHighlightRequest.bind(this));
 		this.registerMessageHandler("textDocument/definition", this.handleDefinitionRequest.bind(this));
+		this.registerMessageHandler("textDocument/completion", this.handleCompletionRequest.bind(this));
 	}
 
 	private searchForTcl3ConfigPath(folderPath: string): string {
@@ -225,6 +227,10 @@ class LSP {
 		}
 
 		this.analyzer = new Analyzer(this, this.tcl3ConfigPath, filePath => this.readFile(filePath));
+
+		if (!this.bestAnalyzer || this.analyzer.getErrors().errorCount <= this.bestAnalyzer.getErrors().errorCount) {
+			this.bestAnalyzer = this.analyzer;
+		}
 	}
 
 	private handleInit(message: RequestMessage, payload: InitializeParams) {
@@ -323,13 +329,12 @@ class LSP {
 		const uri = cleanUri(payload.textDocument.uri);
 		const symbols = this.analyzer.getDocumentSymbols(uri);
 
-		console.log(`Sending ${symbols.length} document symbols for ${uri}`);
 		return symbols;
 	}
 
 	private handleDiagnosticRequest(message: RequestMessage, payload: DocumentDiagnosticParams) {
 		const uri = cleanUri(payload.textDocument.uri);
-		const errors = this.analyzer.getErrors();
+		const { errors } = this.analyzer.getErrors();
 		const errorList = errors.get(uri) || [];
 
 		const diagnosticReport: DocumentDiagnosticReport = {
@@ -341,7 +346,7 @@ class LSP {
 	}
 
 	private handleWorkspaceDiagnosticRequest(message: RequestMessage, payload: WorkspaceDiagnosticParams) {
-		const errors = this.analyzer.getErrors();
+		const { errors } = this.analyzer.getErrors();
 		const workspaceDiagnostic: WorkspaceDiagnosticReport = {
 			items: []
 		};
@@ -393,6 +398,14 @@ class LSP {
 		def.targetUri = uncleanUri(def.targetUri);
 
 		return def;
+	}
+
+	private handleCompletionRequest(message: RequestMessage, payload: CompletionParams) {
+		const uri = cleanUri(payload.textDocument.uri);
+		// Use best analyzer for completions as the trigger character likely caused a syntax error in the current analyzer
+		const completions: CompletionItem[] = this.bestAnalyzer.getCompletionsForPosition(uri, payload.position, payload.context?.triggerCharacter);
+
+		return completions;
 	}
 
 	public readFile(filePath: string): string {

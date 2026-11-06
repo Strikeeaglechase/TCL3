@@ -2,11 +2,17 @@ import { INT_SIZE } from "../ir/irBuilder.js";
 import { ASTType, ASTTypeRef, RawTypeRef, WrappedTypeRef } from "../parser/ast.js";
 import { TokenType } from "../parser/tokenizer.js";
 
-const primitiveSizeMap: Record<string, number> = {
+const primitiveSizeMap: Record<PrimitiveTypeName, number> = {
 	void: 0,
 	int: INT_SIZE,
 	char: INT_SIZE,
 	bool: INT_SIZE
+};
+
+const primitiveTypeNames = ["void", "int", "char", "bool"] as const;
+type PrimitiveTypeName = (typeof primitiveTypeNames)[number];
+const isPrimitiveTypeName = (type: string): type is PrimitiveTypeName => {
+	return primitiveTypeNames.includes(type as PrimitiveTypeName);
 };
 
 function typeToStr(type: ASTTypeRef): string {
@@ -63,4 +69,4 @@ const ptrOf = (type: ASTTypeRef): WrappedTypeRef => {
 	return { type: ASTType.WrappedTypeRef, inner: type };
 };
 
-export { primitiveSizeMap, typeToStr, rawTypeOf, intType, charType, boolType, voidType, ptrOf };
+export { primitiveSizeMap, typeToStr, rawTypeOf, intType, charType, boolType, voidType, ptrOf, primitiveTypeNames, PrimitiveTypeName, isPrimitiveTypeName };

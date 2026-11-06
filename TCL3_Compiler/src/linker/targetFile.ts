@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 
 import { ParserError, TokenizerError } from "../errors.js";
-import { Program } from "../parser/ast.js";
+import { ASTType, Program } from "../parser/ast.js";
 import { Parser } from "../parser/parser.js";
 import { Export, Include, Token, Tokenizer } from "../parser/tokenizer.js";
 import { LinkerOptions } from "./linker.js";
@@ -57,8 +57,31 @@ class TargetFile {
 		fs.writeFileSync(path.join(debugDir, path.basename(this.filePath) + ".tokens.txt"), Tokenizer.generateDebug(this.tokens));
 	}
 
+	public getGlobalSymbolsAvailable(): Token[] {
+		// const depSymbols = this.dependencies.flatMap(dep => dep.exports.map(exp => exp.identifier));
+		const depSymbols = this.dependencies.flatMap(dep => {
+			const depSymbols = dep.getGlobalSymbolsAvailable();
+			return depSymbols.filter(sym => dep.exports.some(exp => exp.identifier == sym.value));
+		});
+
+		const ownSymbols: Token[] = [];
+
+		// walk(this.ast, node => {
+		this.ast.body.forEach(node => {
+			if (node.type == ASTType.FunctionDeclaration || node.type == ASTType.EnumDeclaration || node.type == ASTType.StructDeclaration) {
+				ownSymbols.push(node.nameToken);
+			}
+		});
+
+		return [...depSymbols, ...ownSymbols];
+	}
+
 	public isSameAs(otherPath: string) {
 		return this.opts.pathResolver(otherPath) == this.filePath;
+	}
+
+	public setDependencies(dependencies: TargetFile[]) {
+		this.dependencies = dependencies;
 	}
 
 	public get tokenizerErrors(): TokenizerError[] {

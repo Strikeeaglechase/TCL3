@@ -5,7 +5,7 @@ import { imm, IRBuilder, label, memReg, reg } from "../ir/irBuilder.js";
 import { ASTType, ASTTypeRef, FunctionDeclaration, FunctionTypeRef, Reference, ReturnStatement, VariableDeclaration } from "../parser/ast.js";
 import { mainFnName, Token } from "../parser/tokenizer.js";
 import { walk } from "../parser/walker.js";
-import { Compiler, FunctionCallInfo, returnPointerName, VariableDetailInformation } from "./compiler.js";
+import { Compiler, FunctionCallInfo, returnPointerName, TokenDetailInfo, VariableDetailInformation } from "./compiler.js";
 import { typeToStr } from "./types.js";
 import { IType, Struct } from "./userTypes.js";
 
@@ -14,6 +14,7 @@ interface Local {
 	stackOffset: number;
 	size: number;
 	refId: string;
+	nameToken: Token;
 }
 
 type ForwardDeclaredLocal = Omit<Local, "stackOffset">;
@@ -147,7 +148,12 @@ class FunctionContext implements IType {
 		// Add parameters as forward declared, however do not yet position them on the stack
 		// Positioning must wait until we know the return type size, as we may have a return pointer as the very first argument
 		this.definition.parameters.forEach(param => {
-			this.forwardDeclaredParameters.set(param.name, { refId: uuidv4(), type: param.type, size: this.compiler.resolveTypeSize(param.type) });
+			this.forwardDeclaredParameters.set(param.name, {
+				refId: uuidv4(),
+				type: param.type,
+				size: this.compiler.resolveTypeSize(param.type),
+				nameToken: param.nameToken
+			});
 		});
 
 		const varDecls: VariableDeclaration[] = [];
@@ -184,7 +190,7 @@ class FunctionContext implements IType {
 		// Generated locals have no source token, so their callers pass null.
 		if (this.locals.has(name)) throw new Error(`Local variable '${nameToken?.value ?? name}' is already defined in function '${this.nameToken.value}'.`);
 		const size = this.compiler.resolveTypeSize(type);
-		this.locals.set(name, { refId: uuidv4(), type, stackOffset: this.currentStackOffset, size });
+		this.locals.set(name, { refId: uuidv4(), type, stackOffset: this.currentStackOffset, size, nameToken: nameToken });
 		this.currentStackOffset += size;
 
 		if (!preReservedStack) {
@@ -205,7 +211,7 @@ class FunctionContext implements IType {
 			);
 
 		const size = this.compiler.resolveTypeSize(type);
-		this.locals.set(name, { refId: forwardDeclaredParam?.refId ?? uuidv4(), type, stackOffset, size });
+		this.locals.set(name, { refId: forwardDeclaredParam?.refId ?? uuidv4(), type, stackOffset, size, nameToken: nameToken });
 	}
 
 	// Reads variable 'name' onto the stack
@@ -430,6 +436,15 @@ class FunctionContext implements IType {
 			argumentSize: argSize,
 			argumentCount: local.type.parameters.length
 		};
+	}
+
+	public getAutocompleteSymbols(): TokenDetailInfo[] {
+		const symbols: TokenDetailInfo[] = [];
+
+		this.forwardDeclaredParameters.forEach(param => symbols.push(this.compiler.getTokenDetail(param.nameToken)));
+		this.locals.forEach(local => symbols.push(this.compiler.getTokenDetail(local.nameToken)));
+
+		return symbols;
 	}
 
 	public getCallInfo(): FunctionCallInfo {
