@@ -9,7 +9,7 @@ import { WebSocket, WebSocketServer } from "ws";
 import { Analyzer } from "./analyzer.js";
 import { Document } from "./document.js";
 import { SemanticTokenModifiers, SemanticTokenTypes, TextDocumentSyncKind } from "./extraLspTypes.js";
-import { CompletionItem, DefinitionLink, DocumentHighlight, SemanticTokens } from "./lspTypes/api.js";
+import { CompletionItem, DefinitionLink, DocumentHighlight, SemanticTokens, SignatureHelp } from "./lspTypes/api.js";
 import {
 	CompletionParams,
 	DefinitionParams,
@@ -29,6 +29,7 @@ import {
 	InlayHintParams,
 	SemanticTokensParams,
 	ServerCapabilities,
+	SignatureHelpParams,
 	WorkspaceDiagnosticParams,
 	WorkspaceDiagnosticReport
 } from "./lspTypes/protocol.js";
@@ -191,6 +192,7 @@ class LSP {
 		this.registerMessageHandler("textDocument/documentHighlight", this.handleDocumentHighlightRequest.bind(this));
 		this.registerMessageHandler("textDocument/definition", this.handleDefinitionRequest.bind(this));
 		this.registerMessageHandler("textDocument/completion", this.handleCompletionRequest.bind(this));
+		this.registerMessageHandler("textDocument/signatureHelp", this.handleSignatureHelpRequest.bind(this));
 	}
 
 	private searchForTcl3ConfigPath(folderPath: string): string {
@@ -229,6 +231,7 @@ class LSP {
 		this.analyzer = new Analyzer(this, this.tcl3ConfigPath, filePath => this.readFile(filePath));
 
 		if (!this.bestAnalyzer || this.analyzer.getErrors().errorCount <= this.bestAnalyzer.getErrors().errorCount) {
+			console.log(`Accepted new best analyzer with ${this.analyzer.getErrors().errorCount} errors`);
 			this.bestAnalyzer = this.analyzer;
 		}
 	}
@@ -408,6 +411,13 @@ class LSP {
 		return completions;
 	}
 
+	private handleSignatureHelpRequest(message: RequestMessage, payload: SignatureHelpParams) {
+		const uri = cleanUri(payload.textDocument.uri);
+		const signatureHelp: SignatureHelp = this.analyzer.getFunctionSignatureHelp(uri, payload.position);
+
+		return signatureHelp;
+	}
+
 	public readFile(filePath: string): string {
 		filePath = cleanUri(filePath);
 		if (this.files.has(filePath)) {
@@ -492,7 +502,7 @@ class LSP {
 			}
 			return;
 		}
-		if (!this.loggedHandled.has(message.method)) {
+		if (!this.loggedHandled.has(message.method) || message.method == "textDocument/signatureHelp") {
 			console.log(chalk.blue(`Handling message ${message.method}`));
 			this.loggedHandled.add(message.method);
 		}

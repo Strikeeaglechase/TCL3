@@ -34,7 +34,7 @@ import {
 } from "../parser/ast.js";
 import { mainFnName, resultTypeIsBoolOperands, Token, TokenType } from "../parser/tokenizer.js";
 import { BuiltInFunction, builtInFunctions } from "./builtInFunctions.js";
-import { BuiltInTypeRefDetailInformation, TokenDetailInfo, VariableDetailInformation } from "./detail.js";
+import { BuiltInTypeRefDetailInformation, FunctionListDetailInformation, TokenDetailInfo, VariableDetailInformation } from "./detail.js";
 import { FunctionContext } from "./functionContext.js";
 import { boolType, charType, intType, isPrimitiveTypeName, primitiveSizeMap, ptrOf, typeToStr, voidType } from "./types.js";
 import { Enum, Struct } from "./userTypes.js";
@@ -127,10 +127,14 @@ class Compiler {
 			const existingDetail = this.tokenDetails.get(token);
 
 			if (existingDetail.constructor.name != detail.constructor.name) {
-				// These are runtime detail class names; neither class has a source token.
-				throw new Error(
-					`Token detail conflict for token "${token.value}" at ${token.start}. Existing detail is of type ${existingDetail.constructor.name}, new detail is of type ${detail.constructor.name}`
-				);
+				// It is OK to convert a list of functions to a specific function once we've resolved the overload
+				const validNarrowing = existingDetail instanceof FunctionListDetailInformation && detail instanceof FunctionContext;
+
+				if (!validNarrowing) {
+					throw new Error(
+						`Token detail conflict for token "${token.value}" at ${token.start}. Existing detail is of type ${existingDetail.constructor.name}, new detail is of type ${detail.constructor.name}`
+					);
+				}
 			}
 		}
 
@@ -297,7 +301,7 @@ class Compiler {
 		try {
 			this.compileAstInner(node);
 		} catch (err) {
-			const compilerError = new CompilerError(err, node.location);
+			const compilerError = err instanceof CompilerError ? err : new CompilerError(err, node.location);
 			if (this.throwOnError) throw compilerError;
 
 			this.errors.push(compilerError);
@@ -505,7 +509,7 @@ class Compiler {
 		};
 
 		const returnType = matchingMethod.typeRef.returnType;
-		const returnSize = this.callMethod(structDecl, matchingMethod.name, fnCall, null);
+		const returnSize = this.callMethod(structDecl, matchingMethod.name, fnCall, null, topLevelReference);
 
 		// The behavior of resolveComplexReferenceAddressInR0 means that we want R0 to point to our data
 		// And the caller of resolveComplex will then push the data onto the stack, however, functions already push the data
@@ -558,6 +562,15 @@ class Compiler {
 					);
 
 				const field = structDef.fields.get(curRef.identifier);
+				// Maybe it's a function, currently missing it's parenthesis, register detail for useful LSP support
+				const isFn = structDef.methods.has(curRef.identifier);
+				if (isFn) {
+					const methodList = structDef.methods.get(curRef.identifier);
+					this.registerDetail(curRef.identifierToken, FunctionListDetailInformation.fromFunctions(methodList));
+					throw new Error(
+						`Struct type '${currentType.rawTypeToken.value}' does not have a field named '${curRef.identifierToken.value}', but it does have a method with that name.`
+					);
+				}
 				if (!field) throw new Error(`Struct type '${currentType.rawTypeToken.value}' does not have a field named '${curRef.identifierToken.value}'.`);
 
 				this.builder.comment(`Struct field ${curRef.identifier} at offset ${field.offset}`);
@@ -933,7 +946,7 @@ class Compiler {
 				arguments: [right]
 			};
 
-			this.callMethod(struct, method.name, call, binaryExpr.operatorToken);
+			this.callMethod(struct, method.name, call, binaryExpr.operatorToken, call.reference);
 			return;
 		}
 
@@ -1029,6 +1042,7 @@ class Compiler {
 	}
 
 	public inferTypeFrom(expression: AST): ASTTypeRef {
+		if (!expression) return intType();
 		switch (expression.type) {
 			case ASTType.Literal:
 				switch (expression.literalType) {
@@ -1218,7 +1232,7 @@ class Compiler {
 
 		if (typeA.type == ASTType.FunctionTypeRef && typeB.type == ASTType.FunctionTypeRef) {
 			if (typeA.parameters.length != typeB.parameters.length) return false;
-			if (!typeA.parameters.every((param, index) => this.areTypesEqual(param, typeB.parameters[index]))) return false;
+			if (!typeA.parameters.every((param, index) => this.areTypesEqual(param.type, typeB.parameters[index].type))) return false;
 			if (!ignoreFnReturnType) return this.areTypesEqual(typeA.returnType, typeB.returnType);
 			return true;
 		}
@@ -1331,7 +1345,9 @@ class Compiler {
 		const fnCallType: FunctionTypeRef = {
 			type: ASTType.FunctionTypeRef,
 			fnKeywordToken: null,
-			parameters: call.arguments.map(arg => this.inferTypeFrom(arg)),
+			parameters: call.arguments.map(arg => {
+				return { type: this.inferTypeFrom(arg), nameToken: null as Token };
+			}),
 			returnType: null // Unknown
 		};
 
@@ -1341,7 +1357,7 @@ class Compiler {
 		const matchingFunc = funcDecls.find(f => this.areTypesEqual(f.typeRef, fnCallType, true));
 		if (!matchingFunc) {
 			throw new Error(
-				`No matching function found for call to ${call.reference.identifierToken.value} with parameter types (${fnCallType.parameters.map(p => typeToStr(p)).join(", ")}).`
+				`No matching function found for call to ${call.reference.identifierToken.value} with parameter types (${fnCallType.parameters.map(p => typeToStr(p.type)).join(", ")}).`
 			);
 		}
 
@@ -1394,7 +1410,10 @@ class Compiler {
 			const funcDecls = this.functions.get(node.reference.identifier);
 			if (funcDecls != null) {
 				const argumentList = node.arguments.map(arg => this.inferTypeFrom(arg));
+				// Init detail register being any of the possible overloads
+				this.registerDetail(node.reference.identifierToken, FunctionListDetailInformation.fromFunctions(funcDecls));
 				const matchingFunc = this.findFunctionMatchingArgumentList(funcDecls, argumentList);
+				// Once we've concretely resolved the function, we can register the detail for the specific overload
 				this.callFunction(matchingFunc.name, matchingFunc.getCallInfo(), node, null, node.reference.identifierToken);
 				this.registerDetail(node.reference.identifierToken, matchingFunc);
 				return;
@@ -1461,13 +1480,29 @@ class Compiler {
 		}
 	}
 
-	private deleteRefsFinalChild(node: Reference) {
-		let cur = node;
+	private getRefWithoutFinalChild(node: Reference) {
+		// Clones a reference however preserves Token references, so that detail information can be looked up via object identity
+		// NOTE: This bug has an interesting story. It took me a few minutes to find, however, less than 10. This seems like the type of issue
+		//       that without experience would have been absolutely infuriating to find. It's a seemingly tiny change (that I introduced cloning)
+		//       that broke a random detail lookup in the LSP project. Interesting to see the kinds of bugs im used to watching/finding now.
+		function softRefClone(ref: Reference): Reference {
+			return {
+				child: ref.child ? softRefClone(ref.child) : null,
+				identifier: ref.identifier,
+				identifierToken: ref.identifierToken,
+				offsetExpressions: ref.offsetExpressions ? [...ref.offsetExpressions] : null,
+				dereferenceCount: ref.dereferenceCount,
+				type: ref.type
+			};
+		}
+
+		const cloned = softRefClone(node);
+		let cur = cloned;
 		while (cur.child) {
 			if (!cur.child.child) {
 				const finalChild = cur.child;
 				cur.child = null;
-				return finalChild;
+				return { finalChild, newRef: cloned };
 			}
 
 			cur = cur.child;
@@ -1484,7 +1519,9 @@ class Compiler {
 		const expectedFnType: FunctionTypeRef = {
 			type: ASTType.FunctionTypeRef,
 			fnKeywordToken: null,
-			parameters: argumentTypes,
+			parameters: argumentTypes.map(at => {
+				return { type: at, nameToken: null as Token };
+			}),
 			returnType: null // Unknown
 		};
 
@@ -1501,12 +1538,12 @@ class Compiler {
 
 		if (isMethod) {
 			// Remove the function name from reference chain
-			const methodName = this.deleteRefsFinalChild(call.reference);
-			this.callMethod(methodStructDecl, methodName.identifier, call, methodName.identifierToken);
+			const { finalChild: methodName, newRef } = this.getRefWithoutFinalChild(call.reference);
+			this.callMethod(methodStructDecl, methodName.identifier, call, methodName.identifierToken, newRef);
 			return;
 		}
 
-		const argumentSize = type.parameters.reduce((acc, param) => acc + this.resolveTypeSize(param), 0);
+		const argumentSize = type.parameters.reduce((acc, param) => acc + this.resolveTypeSize(param.type), 0);
 		const returnSize = this.resolveTypeSize(type.returnType);
 		let returnVarName: string;
 		if (returnSize > 1) {
@@ -1523,9 +1560,9 @@ class Compiler {
 
 		this.builder.comment(`Evaluating arguments for call ${referenceToString(call.reference)}`);
 		call.arguments.forEach((arg, idx) => {
-			if (!this.areTypesEqual(this.inferTypeFrom(arg), type.parameters[idx])) {
+			if (!this.areTypesEqual(this.inferTypeFrom(arg), type.parameters[idx].type)) {
 				throw new Error(
-					`Argument type mismatch for argument ${idx} of function call to ${referenceToString(call.reference, true)}. Expected ${typeToStr(type.parameters[idx])}, got ${typeToStr(this.inferTypeFrom(arg))}`
+					`Argument type mismatch for argument ${idx} of function call to ${referenceToString(call.reference, true)}. Expected ${typeToStr(type.parameters[idx].type)}, got ${typeToStr(this.inferTypeFrom(arg))}`
 				);
 			}
 			this.compileAst(arg);
@@ -1552,18 +1589,20 @@ class Compiler {
 		else if (returnSize > 1) this.currentContext.readVarToStack(returnVarName, null);
 	}
 
-	private callMethod(struct: Struct, methodName: string, call: FunctionCall, callToken: Token) {
+	private callMethod(struct: Struct, methodName: string, call: FunctionCall, callToken: Token, thisArgReference: Reference) {
 		const methods = struct.methods.get(methodName);
 		const debugName = `${struct.name}_${methodName}`;
 		this.builder.comment(`Calling method ${debugName}`);
 
 		const argumentList = call.arguments.map(arg => this.inferTypeFrom(arg));
 		argumentList.unshift(ptrOf(struct.typeRef)); // Add this pointer as first argument
+
+		if (callToken) this.registerDetail(callToken, FunctionListDetailInformation.fromFunctions(methods));
 		const matchingMethod = this.findFunctionMatchingArgumentList(methods, argumentList);
 
 		if (callToken) this.registerDetail(callToken, matchingMethod);
 
-		return this.callFunction(debugName, matchingMethod.getCallInfo(), call, call.reference, callToken ?? matchingMethod.nameToken);
+		return this.callFunction(debugName, matchingMethod.getCallInfo(), call, thisArgReference, callToken ?? matchingMethod.nameToken);
 	}
 
 	// Name is only for debug info/symbols

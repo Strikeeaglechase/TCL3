@@ -63,7 +63,7 @@ fn main(): void {
 
 	let test = points[0];
 
-	test.scale()
+	make_point()
 
 	out points[0].get_x();
 	out points[1].get_y();

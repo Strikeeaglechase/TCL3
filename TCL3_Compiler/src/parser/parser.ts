@@ -485,7 +485,20 @@ class Parser {
 				this.tokenStream.consumeTV(TokenType.Symbol, ",");
 			}
 
-			pushIfDef(args, this.parseStatement(true));
+			// Check for dangling comma, as user may be in the process of typing the next argument
+			const nextPeaked = this.tokenStream.peak();
+			if (nextPeaked.type == TokenType.Symbol && nextPeaked.value == ")") {
+				// Indicates that an argument has been started but not yet valid
+				args.push(null);
+
+				const error = new ParserError(new Error(`Dangling comma in argument list`), this.tokenSpan(nextPeaked));
+				this.parseErrors.push(error);
+				if (this.throwOnError) throw error;
+				break;
+			}
+
+			// pushIfDef(args, this.parseStatement(true));
+			args.push(this.parseStatement(true));
 		}
 
 		this.tokenStream.consumeTV(TokenType.Symbol, ")");
@@ -554,7 +567,9 @@ class Parser {
 			const fnType: FunctionTypeRef = {
 				type: ASTType.FunctionTypeRef,
 				fnKeywordToken: baseTypeToken,
-				parameters: typeArgs,
+				parameters: typeArgs.map(typeArg => {
+					return { nameToken: null as Token, type: typeArg };
+				}),
 				returnType: returnType,
 				location: this.spanFromStartingTokenIndex(tokenStartIndex)
 			};

@@ -81,11 +81,45 @@ class BuiltInTypeRefDetailInformation implements IType {
 	public getHoverDetail(): string {
 		if (!this.fnType) return null;
 
-		const detail = `function(${this.fnType.parameters.map(param => typeToStr(param)).join(", ")}): ${typeToStr(this.fnType.returnType)}`;
+		const detail = `function(${this.fnType.parameters.map(param => `${param.nameToken}: ${typeToStr(param.type)}`).join(", ")}): ${typeToStr(this.fnType.returnType)}`;
 		return detail;
 	}
 }
 
-type TokenDetailInfo = Struct | Enum | FunctionContext | VariableDetailInformation | BuiltInFunction | BuiltInTypeRefDetailInformation;
+class FunctionListDetailInformation implements IType {
+	public readonly refId: string;
+	public readonly nameToken: Token;
 
-export { VariableDetailInformation, BuiltInTypeRefDetailInformation, TokenDetailInfo };
+	public static fromFunctions(functions: FunctionContext[]): FunctionListDetailInformation | FunctionContext {
+		if (functions.length == 1) return functions[0];
+		return new FunctionListDetailInformation(functions);
+	}
+
+	private constructor(public readonly functions: FunctionContext[]) {
+		this.refId = uuidv4();
+		this.nameToken = functions[0].nameToken;
+	}
+
+	public get typeRef(): ASTTypeRef {
+		return this.functions[0].typeRef;
+	}
+
+	public getHoverDetail(): string {
+		const fnDetail = this.functions[0].getHoverDetail();
+		if (this.functions.length == 1) return fnDetail;
+
+		const maybeS = this.functions.length > 2 ? "s" : "";
+		return `${fnDetail} (+${this.functions.length - 1} overload${maybeS})`;
+	}
+}
+
+type TokenDetailInfo =
+	| Struct
+	| Enum
+	| FunctionContext
+	| VariableDetailInformation
+	| BuiltInFunction
+	| BuiltInTypeRefDetailInformation
+	| FunctionListDetailInformation;
+
+export { VariableDetailInformation, BuiltInTypeRefDetailInformation, TokenDetailInfo, FunctionListDetailInformation };

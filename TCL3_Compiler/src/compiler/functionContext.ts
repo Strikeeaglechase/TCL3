@@ -31,9 +31,6 @@ class FunctionContext implements IType {
 	public readonly refId: string = uuidv4();
 	public type: FunctionTypeRef;
 	private returnType: ASTTypeRef;
-	public get callTypeSignature(): string {
-		return this.type.parameters.map(param => typeToStr(param)).join(", ");
-	}
 	public readonly argSize: number;
 
 	public readonly isStatic: boolean;
@@ -126,7 +123,7 @@ class FunctionContext implements IType {
 		this.type = {
 			type: ASTType.FunctionTypeRef,
 			fnKeywordToken: this.definition.nameToken,
-			parameters: this.definition.parameters.map(param => param.type),
+			parameters: this.definition.parameters,
 			returnType: this.definition.returnType
 		};
 	}
@@ -135,7 +132,7 @@ class FunctionContext implements IType {
 		this.type = {
 			type: ASTType.FunctionTypeRef,
 			fnKeywordToken: this.definition.nameToken,
-			parameters: this.definition.parameters.map(param => param.type),
+			parameters: this.definition.parameters,
 			returnType: this.returnType
 		};
 
@@ -425,7 +422,7 @@ class FunctionContext implements IType {
 		if (!local) throw new Error(`Local variable '${nameToken.value}' is not defined in function '${this.nameToken.value}'.`);
 		if (local.type.type !== ASTType.FunctionTypeRef) throw new Error(`Local variable '${nameToken.value}' is not a function type, cannot create call info.`);
 
-		const argSize = local.type.parameters.reduce((acc, param) => acc + this.compiler.resolveTypeSize(param), 0);
+		const argSize = local.type.parameters.reduce((acc, param) => acc + this.compiler.resolveTypeSize(param.type), 0);
 		return {
 			getAddress: () => {
 				this.builder.move(memReg(Register.fp, local.stackOffset), reg(Register.r0));

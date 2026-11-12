@@ -58,7 +58,7 @@ const walkNodeHandlers: WalkHandlersMap = {
 	[ASTType.AddressOf]: (node, visitor) => visitor(node.reference),
 	[ASTType.WrappedTypeRef]: (node, visitor) => visitor(node.inner),
 	[ASTType.FunctionTypeRef]: (node, visitor) => {
-		node.parameters.forEach(visitor);
+		node.parameters.forEach(p => visitor(p.type));
 		visitor(node.returnType);
 	},
 	[ASTType.RawTypeRef]: () => {},

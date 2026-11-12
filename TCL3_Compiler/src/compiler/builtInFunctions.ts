@@ -5,7 +5,7 @@ import { imm, reg } from "../ir/irBuilder.js";
 import { ASTType, ASTTypeRef, FunctionCall, FunctionTypeRef } from "../parser/ast.js";
 import { Token, TokenType } from "../parser/tokenizer.js";
 import { Compiler } from "./compiler.js";
-import { primitiveSizeMap, ptrOf, rawTypeOf, typeToStr } from "./types.js";
+import { primitiveSizeMap, PrimitiveTypeName, ptrOf, rawTypeOf, typeToStr } from "./types.js";
 import { IType } from "./userTypes.js";
 
 class BuiltInFunction implements IType {
@@ -31,7 +31,16 @@ class BuiltInFunction implements IType {
 		const fnRef: FunctionTypeRef = {
 			type: ASTType.FunctionTypeRef,
 			fnKeywordToken: null,
-			parameters: this.parameters.map(p => p.type),
+			parameters: this.parameters.map(p => {
+				const nameToken: Token = {
+					value: p.name,
+					type: TokenType.Identifier,
+					start: -1,
+					end: -1,
+					fileIdentifier: "builtInFunction"
+				};
+				return { nameToken: nameToken, type: p.type };
+			}),
 			returnType: this.returnType
 		};
 
@@ -74,8 +83,9 @@ const sizeof = new BuiltInFunction(
 			return;
 		}
 
-		if (primitiveSizeMap[call.arguments[0].identifier] !== undefined) {
-			const size = primitiveSizeMap[call.arguments[0].identifier];
+		const identifier: PrimitiveTypeName = call.arguments[0].identifier as PrimitiveTypeName;
+		if (primitiveSizeMap[identifier] !== undefined) {
+			const size = primitiveSizeMap[identifier];
 			this.builder.move(imm(size), reg(Register.funcRet));
 			return;
 		}

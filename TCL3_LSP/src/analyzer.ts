@@ -1,20 +1,32 @@
 import chalk from "chalk";
+import fs from "fs";
 import path from "path";
 import { Compiler, TokenDetailInfo, VariableDetailInformation } from "tlc3/compiler/compiler.js";
+import { FunctionListDetailInformation } from "tlc3/compiler/detail.js";
 import { FunctionContext } from "tlc3/compiler/functionContext.js";
 import { primitiveTypeNames, typeToStr } from "tlc3/compiler/types.js";
 import { Enum, Struct } from "tlc3/compiler/userTypes.js";
 import { TCl3Error } from "tlc3/errors.js";
 import { Linker } from "tlc3/linker/linker.js";
 import { TargetFile } from "tlc3/linker/targetFile.js";
-import { AST, ASTType, FunctionDeclaration, Program, VariableDeclaration } from "tlc3/parser/ast.js";
+import { AST, ASTType, ASTTypeRef, FunctionCall, FunctionDeclaration, Program, VariableDeclaration } from "tlc3/parser/ast.js";
 import { keywords, Token, TokenType, topLevelKeywords } from "tlc3/parser/tokenizer.js";
 import { walk } from "tlc3/parser/walker.js";
 
 import { Document } from "./document.js";
 import { CompletionItemKind, SemanticTokenTypes, SymbolKind } from "./extraLspTypes.js";
 import { LSP } from "./index.js";
-import { CompletionItem, DefinitionLink, DocumentHighlight, DocumentSymbol, InlayHint, Position, Range } from "./lspTypes/api.js";
+import {
+	CompletionItem,
+	DefinitionLink,
+	DocumentHighlight,
+	DocumentSymbol,
+	InlayHint,
+	Position,
+	Range,
+	SignatureHelp,
+	SignatureInformation
+} from "./lspTypes/api.js";
 
 interface TokenTypeRange {
 	start: number;
@@ -91,6 +103,8 @@ class Analyzer {
 	private tokenTypeRanges: TokenTypeRange[] = [];
 	private tokens: Token[] = [];
 
+	private flatAst: AST[] = [];
+
 	constructor(
 		private lsp: LSP,
 		configPath: string,
@@ -100,6 +114,11 @@ class Analyzer {
 		this.linker = buildArtifacts.linker;
 		this.program = buildArtifacts.program;
 		this.compiler = buildArtifacts.compiler;
+
+		// This is used to help resolve function signature information, however, doing a find over every single ast node in the entire linked project seems really inefficient
+		walk(this.program, node => {
+			this.flatAst.push(node);
+		});
 
 		this.loadTokensFromAllFiles();
 		this.buildTokenTypeRanges();
@@ -372,6 +391,146 @@ class Analyzer {
 
 		console.log(`Unhandled detail type: ${detail.constructor.name}`, detail);
 		return [];
+	}
+
+	private getFunctionSignature(name: string, parameters: { nameToken: Token; type: ASTTypeRef }[], returnType: ASTTypeRef): SignatureInformation {
+		let label = `${name}(`;
+
+		label += parameters
+			.map((param, idx) => {
+				if (idx == 0 && param.nameToken?.value == "this") return null;
+				return `${param.nameToken.value}: ${typeToStr(param.type)}`;
+			})
+			.filter(param => param != null)
+			.join(", ");
+
+		label += `): ${typeToStr(returnType)}`;
+		return {
+			label: label,
+			// documentation: func.getHoverDetail(),
+			parameters: parameters.map(param => {
+				return {
+					label: `${param.nameToken.value}: ${typeToStr(param.type)}`
+				};
+			})
+		};
+	}
+
+	public getFunctionSignatureHelp(fileUri: string, position: Position): SignatureHelp {
+		const file = this.linker.getFileByUri(fileUri);
+		if (!file) return null;
+		const document = this.lsp.getDocument(fileUri);
+
+		const positionIndex = document.positionToIndex(position);
+		// fs.writeFileSync("../temp.json", this.flatAst.map(n => JSON.stringify(n)).join("\n"));
+		// fs.writeFileSync("../temp.json", JSON.stringify(this.program, null, 2));
+		// fs.writeFileSync("../temp.txt", file.content);
+		const callAst = this.flatAst.find(
+			node =>
+				node.type == ASTType.FunctionCall &&
+				node.location.fileIdentifier == file.identifier &&
+				node.location.startIndex <= positionIndex &&
+				node.location.endIndex >= positionIndex
+		) as FunctionCall;
+
+		if (!callAst) return null;
+
+		let callToken: Token;
+		// if (callAst) {
+		let tailOfReference = callAst.reference;
+		while (tailOfReference.child != null) tailOfReference = tailOfReference.child;
+
+		callToken = tailOfReference.identifierToken;
+		// } else {
+		// 	callToken = this.getPreviousTokenBeforePosition(document, file, position);
+		// }
+
+		if (!callToken) return null;
+
+		const detail = this.compiler.getTokenDetail(callToken);
+		const validDetailType =
+			detail instanceof FunctionContext || detail instanceof FunctionListDetailInformation || detail instanceof VariableDetailInformation;
+		if (!validDetailType) return null;
+
+		if (detail instanceof FunctionContext) {
+			const activeAstParameterIndex = callAst.arguments.findIndex((arg, idx) => {
+				if (idx == callAst.arguments.length - 1) return true; // If the cursor is after the last argument, we want to show the last parameter as active
+				return arg?.location.startIndex <= positionIndex && arg?.location.endIndex >= positionIndex;
+			});
+			const activeIndex = activeAstParameterIndex == -1 ? callAst.arguments.length : activeAstParameterIndex;
+			const thisArgOffset = detail.definition.parameters.length > 0 && detail.definition.parameters[0].nameToken?.value == "this" ? 1 : 0;
+			const activeParameterIndex = activeIndex - thisArgOffset;
+
+			return {
+				signatures: [this.getFunctionSignature(detail.nameToken.value, detail.definition.parameters, detail.typeRef.returnType)],
+				activeParameter: activeParameterIndex
+			};
+		}
+
+		if (detail instanceof VariableDetailInformation) {
+			if (detail.typeRef.type != ASTType.FunctionTypeRef) return null;
+
+			const activeAstParameterIndex = callAst.arguments.findIndex((arg, idx) => {
+				if (idx == callAst.arguments.length - 1) return true; // If the cursor is after the last argument, we want to show the last parameter as active
+				return arg?.location.startIndex <= positionIndex && arg?.location.endIndex >= positionIndex;
+			});
+			const activeIndex = activeAstParameterIndex == -1 ? callAst.arguments.length : activeAstParameterIndex;
+			const thisArgOffset = detail.typeRef.parameters.length > 0 && detail.typeRef.parameters[0].nameToken?.value == "this" ? 1 : 0;
+			const activeParameterIndex = activeIndex - thisArgOffset;
+
+			return {
+				signatures: [this.getFunctionSignature(detail.nameToken.value, detail.typeRef.parameters, detail.typeRef.returnType)],
+				activeParameter: activeParameterIndex
+			};
+		}
+
+		if (detail instanceof FunctionListDetailInformation) {
+			// Identify best matching function based on parameter types
+
+			const scored = detail.functions.map(func => {
+				let score = 0;
+
+				const argCountDelta = Math.abs(func.definition.parameters.length - callAst.arguments.length);
+				score -= argCountDelta;
+
+				func.definition.parameters.forEach((param, idx) => {
+					const callType = this.compiler.inferTypeFrom(callAst.arguments[idx]);
+					if (this.compiler.areTypesEqual(param.type, callType)) {
+						score += 1;
+					} else {
+						score -= 1;
+					}
+				});
+
+				return {
+					func: func,
+					score: score
+				};
+			});
+
+			scored.sort((a, b) => b.score - a.score);
+
+			const selectedFunc = scored[0].func;
+			const selectedFuncIndex = detail.functions.findIndex(func => func === selectedFunc);
+
+			const activeAstParameterIndex = callAst.arguments.findIndex((arg, idx) => {
+				if (idx == callAst.arguments.length - 1) return true; // If the cursor is after the last argument, we want to show the last parameter as active
+				return arg?.location.startIndex <= positionIndex && arg?.location.endIndex >= positionIndex;
+			});
+			const activeIndex = activeAstParameterIndex == -1 ? callAst.arguments.length : activeAstParameterIndex;
+			const thisArgOffset = selectedFunc.definition.parameters.length > 0 && selectedFunc.definition.parameters[0].nameToken?.value == "this" ? 1 : 0;
+			const activeParameterIndex = activeIndex - thisArgOffset;
+
+			return {
+				signatures: detail.functions.map(func => {
+					return this.getFunctionSignature(func.nameToken.value, func.definition.parameters, func.typeRef.returnType);
+				}),
+				activeSignature: selectedFuncIndex,
+				activeParameter: activeParameterIndex
+			}; // fuck
+		}
+
+		return { signatures: [] };
 	}
 
 	// Document symbols

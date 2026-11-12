@@ -66,7 +66,7 @@ export interface WrappedTypeRef extends ASTNode {
 export interface FunctionTypeRef extends ASTNode {
 	type: ASTType.FunctionTypeRef;
 	fnKeywordToken: Token;
-	parameters: ASTTypeRef[];
+	parameters: { nameToken: Token; type: ASTTypeRef }[];
 	returnType: ASTTypeRef;
 }
 

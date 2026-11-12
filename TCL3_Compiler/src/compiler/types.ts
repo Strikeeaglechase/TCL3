@@ -26,7 +26,8 @@ function typeToStr(type: ASTTypeRef): string {
 			let fnType = `Fn<`;
 			current.parameters.forEach((p, idx) => {
 				if (idx > 0) fnType += ", ";
-				fnType += typeToStr(p);
+				if (p.nameToken) fnType += `${p.nameToken.value}: `;
+				fnType += typeToStr(p.type);
 			});
 			if (current.parameters.length > 0) fnType += ", ";
 			fnType += `${typeToStr(current.returnType)}>`;

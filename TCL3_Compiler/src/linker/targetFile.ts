@@ -11,7 +11,7 @@ let globalFileCounter = 0;
 class TargetFile {
 	public readonly filePath: string;
 	public readonly identifier: string;
-	private content: string;
+	public readonly content: string;
 	public readonly includes: Include[];
 	public readonly exports: Export[];
 
