@@ -859,6 +859,19 @@ class Parser {
 				};
 				return this.maybeStartBinaryExpressionOrBlockedReference(unaryExpr, allowBinaryExpression);
 			}
+			case "<": {
+				const innerType = this.parseTypeRef();
+				this.tokenStream.consumeTV(TokenType.Operator, ">");
+				const innerExpr = this.parseStatement();
+				const cast: TypeCast = {
+					type: ASTType.TypeCast,
+					castType: innerType.type,
+					expression: innerExpr,
+					location: this.spanFromStartingTokenIndex(startTokenIndex)
+				};
+
+				return cast;
+			}
 			// case ""
 			default:
 				throw new Error(`Unexpected operator: ${op}`);
@@ -925,18 +938,18 @@ class Parser {
 				const inner = this.parseStatement(true);
 				this.tokenStream.consumeTV(TokenType.Symbol, ")");
 				return this.maybeStartBinaryExpressionOrBlockedReference(inner, allowBinaryExpression);
-			case "▸":
-				const innerType = this.parseTypeRef();
-				this.tokenStream.consumeTV(TokenType.Symbol, "◂");
-				const innerExpr = this.parseStatement();
-				const cast: TypeCast = {
-					type: ASTType.TypeCast,
-					castType: innerType.type,
-					expression: innerExpr,
-					location: this.spanFromStartingTokenIndex(startTokenIndex)
-				};
+			// case "{":
+			// 	const innerType = this.parseTypeRef();
+			// 	this.tokenStream.consumeTV(TokenType.Symbol, "}");
+			// 	const innerExpr = this.parseStatement();
+			// 	const cast: TypeCast = {
+			// 		type: ASTType.TypeCast,
+			// 		castType: innerType.type,
+			// 		expression: innerExpr,
+			// 		location: this.spanFromStartingTokenIndex(startTokenIndex)
+			// 	};
 
-				return cast;
+			// 	return cast;
 			default:
 				throw new Error(`Unexpected symbol: ${symbol}`);
 		}

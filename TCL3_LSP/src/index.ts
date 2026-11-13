@@ -65,7 +65,7 @@ const serverCapabilities: ServerCapabilities = {
 		full: true
 	},
 	workspace: { workspaceFolders: { supported: true, changeNotifications: true } },
-	completionProvider: { triggerCharacters: [".", ">", preprocessorDirectiveStart, ":", "▸", " "], resolveProvider: false },
+	completionProvider: { triggerCharacters: [".", ">", preprocessorDirectiveStart, ":", "{", " "], resolveProvider: false },
 	hoverProvider: true,
 	definitionProvider: true,
 	typeDefinitionProvider: true,
@@ -193,7 +193,6 @@ class LSP {
 		this.registerMessageHandler("workspace/didChangeConfiguration", this.handleWorkspaceConfigChange.bind(this));
 		this.registerMessageHandler("workspace/didChangeWatchedFiles", this.handleWorkspaceWatchedFilesChanged.bind(this));
 		this.registerMessageHandler("workspace/didChangeWorkspaceFolders", this.handleWorkspaceFoldersChanged.bind(this));
-		// this.registerMessageHandler("textDocument/completion", this.handleCompletionRequest.bind(this));
 		this.registerMessageHandler("textDocument/hover", this.handleHoverRequest.bind(this));
 		this.registerMessageHandler("textDocument/inlayHint", this.handleInlayHintRequest.bind(this));
 		this.registerMessageHandler("textDocument/documentSymbol", this.handleDocumentSymbolRequest.bind(this));

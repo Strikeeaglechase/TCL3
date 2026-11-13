@@ -161,7 +161,7 @@ let nestedValue = **pointerToPointer;
 The built-in `malloc(size)` allocates `size` uninitialized cells and returns a `void*`. Reading an allocated cell before writing it is undefined behavior. Allocated memory is never freed:
 
 ```Rust
-let values: int* = ▸int*◂malloc(count * sizeof(int));
+let values: int* = {int*}malloc(count * sizeof(int));
 ```
 
 ## Types
@@ -233,10 +233,10 @@ A non-overloaded function name may be used as a function-pointer value. An overl
 
 ### Explicit casts
 
-`▸<type>◂<expression>` gives an expression an explicit type:
+`{<type>}<expression>` gives an expression an explicit type:
 
 ```rust
-let values: int* = ▸int*◂malloc(count);
+let values: int* = {int*}malloc(count);
 ```
 
 A cast changes the compile-time type without emitting a runtime conversion or performing safety checks. Unsafe casts, including casts between differently sized types, are allowed; ensuring that a cast is valid for the underlying value and storage is the programmer's responsibility.

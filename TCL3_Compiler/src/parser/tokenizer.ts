@@ -4,7 +4,7 @@ import { Stream } from "../stream.js";
 const topLevelKeywords = ["fn", "struct", "enum"];
 const keywords = [...topLevelKeywords, "if", "else", "elif", "while", "for", "return", "let", "out", "break", "continue", "static"];
 const operands = ["+", "-", "*", "/", "%", "|", "&", "^", "||", "&&", "!", "==", "!=", "<", ">", "<=", ">=", "~", ">>", "<<"];
-const symbols = ["(", ")", "[", "]", "{", "}", ";", ",", ".", "=", ":", "->", "+=", "-=", "*=", "/=", "%=", "|=", "&=", "^=", "▸", "◂"];
+const symbols = ["(", ")", "[", "]", "{", "}", ";", ",", ".", "=", ":", "->", "+=", "-=", "*=", "/=", "%=", "|=", "&=", "^="];
 const selfAssignMathOps = ["+=", "-=", "*=", "/=", "%=", "&=", "|=", "^="];
 const resultTypeIsBoolOperands = ["==", "!=", "<", ">", "<=", ">=", "&&", "||"];
 
