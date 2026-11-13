@@ -1,0 +1,36 @@
+struct SubStruct {
+	z: int;
+}
+
+#export Point
+struct Point {
+	x: int;
+	y: int;
+
+	sub: SubStruct;
+
+	fn get_x(): int {
+		return this->x;
+	}
+
+	fn get_y(): int {
+		return this->y;
+	}
+
+	fn scale(factor: int): void {
+		this->x *= factor;
+		this->y *= factor;
+	}
+
+	fn scale(pt: Point): void {
+		this->x *= pt.x;
+		this->y *= pt.y;
+	}
+}
+
+#export make_point
+fn make_point(x: int, y: int) {
+	let p: Point = {x: x, y: y};
+
+	return p;
+}

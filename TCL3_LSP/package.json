@@ -13,6 +13,7 @@
 	"license": "ISC",
 	"devDependencies": {
 		"@types/node": "^26.6.2",
+		"@types/ws": "^8.18.2",
 		"typescript": "^5.9.3",
 		"vite-plugin-node-polyfills": "^0.28.0"
 	},
@@ -20,6 +21,7 @@
 		"chalk": "^6.0.1",
 		"tlc3": "file:../TCL3_Compiler",
 		"vscode-jsonrpc": "^9.0.3",
+		"vscode-languageserver-types": "^3.18.5",
 		"ws": "^8.22.0"
 	}
 }

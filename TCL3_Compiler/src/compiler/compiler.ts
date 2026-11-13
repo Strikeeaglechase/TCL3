@@ -1,6 +1,3 @@
-import chalk from "chalk";
-import fs from "fs";
-
 import { CompilerError } from "../errors.js";
 import { IRArgument, Register } from "../ir/ir.js";
 import { imm, INT_SIZE, IRBuilder, label, memReg, reg, str, ThreeArgInstructions } from "../ir/irBuilder.js";
@@ -96,7 +93,7 @@ const programExitLabel = `__program_exit`;
 const returnPointerName = `__returnPointer`;
 
 class Compiler {
-	private currentContext: FunctionContext = null;
+	public currentContext: FunctionContext = null;
 
 	public builder: IRBuilder = new IRBuilder();
 	public structs: Map<string, Struct> = new Map();
@@ -566,7 +563,7 @@ class Compiler {
 				const isFn = structDef.methods.has(curRef.identifier);
 				if (isFn) {
 					const methodList = structDef.methods.get(curRef.identifier);
-					this.registerDetail(curRef.identifierToken, FunctionListDetailInformation.fromFunctions(methodList));
+					this.registerDetail(curRef.identifierToken, FunctionListDetailInformation.fromFunctions(methodList, this.currentContext));
 					throw new Error(
 						`Struct type '${currentType.rawTypeToken.value}' does not have a field named '${curRef.identifierToken.value}', but it does have a method with that name.`
 					);
@@ -1411,7 +1408,7 @@ class Compiler {
 			if (funcDecls != null) {
 				const argumentList = node.arguments.map(arg => this.inferTypeFrom(arg));
 				// Init detail register being any of the possible overloads
-				this.registerDetail(node.reference.identifierToken, FunctionListDetailInformation.fromFunctions(funcDecls));
+				this.registerDetail(node.reference.identifierToken, FunctionListDetailInformation.fromFunctions(funcDecls, this.currentContext));
 				const matchingFunc = this.findFunctionMatchingArgumentList(funcDecls, argumentList);
 				// Once we've concretely resolved the function, we can register the detail for the specific overload
 				this.callFunction(matchingFunc.name, matchingFunc.getCallInfo(), node, null, node.reference.identifierToken);
@@ -1597,7 +1594,7 @@ class Compiler {
 		const argumentList = call.arguments.map(arg => this.inferTypeFrom(arg));
 		argumentList.unshift(ptrOf(struct.typeRef)); // Add this pointer as first argument
 
-		if (callToken) this.registerDetail(callToken, FunctionListDetailInformation.fromFunctions(methods));
+		if (callToken) this.registerDetail(callToken, FunctionListDetailInformation.fromFunctions(methods, this.currentContext));
 		const matchingMethod = this.findFunctionMatchingArgumentList(methods, argumentList);
 
 		if (callToken) this.registerDetail(callToken, matchingMethod);

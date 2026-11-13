@@ -90,12 +90,15 @@ class FunctionListDetailInformation implements IType {
 	public readonly refId: string;
 	public readonly nameToken: Token;
 
-	public static fromFunctions(functions: FunctionContext[]): FunctionListDetailInformation | FunctionContext {
+	public static fromFunctions(functions: FunctionContext[], currentContext: FunctionContext): FunctionListDetailInformation | FunctionContext {
 		if (functions.length == 1) return functions[0];
-		return new FunctionListDetailInformation(functions);
+		return new FunctionListDetailInformation(functions, currentContext);
 	}
 
-	private constructor(public readonly functions: FunctionContext[]) {
+	private constructor(
+		public readonly functions: FunctionContext[],
+		public readonly currentContext: FunctionContext
+	) {
 		this.refId = uuidv4();
 		this.nameToken = functions[0].nameToken;
 	}

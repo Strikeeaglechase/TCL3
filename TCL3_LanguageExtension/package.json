@@ -15,7 +15,8 @@
 	},
 	"devDependencies": {
 		"@types/node": "^20.17.30",
-		"@types/vscode": "^1.106.0"
+		"@types/vscode": "^1.106.0",
+		"@types/ws": "^8.18.2"
 	},
 	"dependencies": {
 		"vscode-languageclient": "^10.1.2",

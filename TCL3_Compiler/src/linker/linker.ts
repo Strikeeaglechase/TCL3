@@ -103,7 +103,7 @@ class Linker {
 
 		const dependencies = file.includes.map(include => {
 			const resolvedIncludePath = this.options.pathResolver(path.join(path.dirname(filePath), include.path));
-			if (!fs.existsSync(resolvedIncludePath)) {
+			if (!fs.existsSync(resolvedIncludePath) || !fs.statSync(resolvedIncludePath).isFile()) {
 				const error = new Error(`Included file not found: ${resolvedIncludePath}, included from: ${filePath}`);
 				const linkerError = new LinkerError(error, { startIndex: include.start, endIndex: include.end, fileIdentifier: file.identifier });
 				this.linkerErrors.push(linkerError);

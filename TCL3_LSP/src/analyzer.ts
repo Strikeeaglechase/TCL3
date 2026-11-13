@@ -163,14 +163,16 @@ class Analyzer {
 
 		const allMatchingDetails = this.compiler.getTokenDetailsMatchingRefId(detail.refId);
 
-		const highlights: DocumentHighlight[] = allMatchingDetails.map(matchingDetail => {
-			return {
-				range: {
-					start: document.indexToPosition(matchingDetail.token.start),
-					end: document.indexToPosition(matchingDetail.token.end)
-				}
-			};
-		});
+		const highlights: DocumentHighlight[] = allMatchingDetails
+			.filter(detail => detail.token.fileIdentifier == file.identifier)
+			.map(matchingDetail => {
+				return {
+					range: {
+						start: document.indexToPosition(matchingDetail.token.start),
+						end: document.indexToPosition(matchingDetail.token.end)
+					}
+				};
+			});
 
 		return highlights;
 	}
@@ -494,9 +496,12 @@ class Analyzer {
 				score -= argCountDelta;
 
 				func.definition.parameters.forEach((param, idx) => {
+					// In order to infer type for references need the correct context to be set
+					this.compiler.currentContext = detail.currentContext;
 					const callType = this.compiler.inferTypeFrom(callAst.arguments[idx]);
+					this.compiler.currentContext = null;
 					if (this.compiler.areTypesEqual(param.type, callType)) {
-						score += 1;
+						score += 2;
 					} else {
 						score -= 1;
 					}
@@ -527,7 +532,7 @@ class Analyzer {
 				}),
 				activeSignature: selectedFuncIndex,
 				activeParameter: activeParameterIndex
-			}; // fuck
+			};
 		}
 
 		return { signatures: [] };

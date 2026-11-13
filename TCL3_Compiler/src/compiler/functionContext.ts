@@ -470,7 +470,8 @@ class FunctionContext implements IType {
 			.filter(v => v != null)
 			.join(", ");
 
-		return `${header}${this.nameToken.value}(${paramList}): ${typeToStr(this.type.returnType)}`;
+		const returnType = this.type.returnType ? typeToStr(this.type.returnType) : "(unknown)";
+		return `${header}${this.nameToken.value}(${paramList}): ${returnType}`;
 	}
 }
 

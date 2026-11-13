@@ -89,6 +89,10 @@ const cleanUri = (uri: string) => {
 		clean = clean.substring("file:///".length);
 	}
 
+	if (process.platform == "darwin" && !clean.startsWith("/")) {
+		clean = "/" + clean;
+	}
+
 	clean = path.resolve(clean);
 	uriMap.set(clean, uri);
 	if (uriMap.has(clean) && uriMap.get(clean) != uri) {
@@ -103,7 +107,8 @@ const cleanUri = (uri: string) => {
 const uncleanUri = (uri: string) => {
 	uri = uriMap.get(uri) || uri;
 	if (!uri.startsWith("file:///")) {
-		uri = "file:///" + uri;
+		if (uri.startsWith("/")) uri = "file://" + uri;
+		else uri = "file:///" + uri;
 	}
 
 	return uri;
@@ -502,7 +507,7 @@ class LSP {
 			}
 			return;
 		}
-		if (!this.loggedHandled.has(message.method) || message.method == "textDocument/signatureHelp") {
+		if (!this.loggedHandled.has(message.method)) {
 			console.log(chalk.blue(`Handling message ${message.method}`));
 			this.loggedHandled.add(message.method);
 		}

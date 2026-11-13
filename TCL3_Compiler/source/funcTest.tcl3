@@ -1,42 +1,14 @@
+#include ./point.tcl3
 // EXPECT: 11
 // EXPECT: 41
 // EXPECT: 24
 // EXPECT: 1
 // EXPECT: 2
 
-struct SubStruct {
-	z: int;
-}
-
-struct Point {
-	x: int;
-	y: int;
-
-	sub: SubStruct;
-
-	fn get_x(): int {
-		return this->x;
-	}
-
-	fn get_y(): int {
-		return this->y;
-	}
-
-	fn scale(factor: int): void {
-		this->x *= factor;
-		this->y *= factor;
-	}
-
-	fn scale(pt: Point): void {
-		this->x *= pt.x;
-		this->y *= pt.y;
-	}
-}
 
 enum Test {
 	A,
 	B
-	
 }
 
 // ISS-021
@@ -52,18 +24,15 @@ struct Second {
 	}
 }
 
-fn make_point(x: int, y: int) {
-	let p: Point = {x: x, y: y};
-
-	return p;
-}
 
 fn main(): void {
 	let points: Point[2] = {make_point(11, 12), make_point(31, 41)};
 
 	let test = points[0];
 
-	make_point()
+	let a = make_point(1, 2);
+
+	a.scale(points[1])
 
 	out points[0].get_x();
 	out points[1].get_y();
