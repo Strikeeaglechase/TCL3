@@ -9,7 +9,7 @@ import { WebSocket, WebSocketServer } from "ws";
 import { Analyzer } from "./analyzer.js";
 import { Document } from "./document.js";
 import { SemanticTokenModifiers, SemanticTokenTypes, TextDocumentSyncKind } from "./extraLspTypes.js";
-import { CompletionItem, DefinitionLink, DocumentHighlight, SemanticTokens, SignatureHelp } from "./lspTypes/api.js";
+import { CompletionItem, DefinitionLink, DocumentHighlight, SemanticTokens, SignatureHelp, WorkspaceEdit } from "./lspTypes/api.js";
 import {
 	CompletionParams,
 	DefinitionParams,
@@ -27,6 +27,9 @@ import {
 	InitializeParams,
 	InitializeResult,
 	InlayHintParams,
+	PrepareRenameParams,
+	PrepareRenameResult,
+	RenameParams,
 	SemanticTokensParams,
 	ServerCapabilities,
 	SignatureHelpParams,
@@ -198,6 +201,8 @@ class LSP {
 		this.registerMessageHandler("textDocument/definition", this.handleDefinitionRequest.bind(this));
 		this.registerMessageHandler("textDocument/completion", this.handleCompletionRequest.bind(this));
 		this.registerMessageHandler("textDocument/signatureHelp", this.handleSignatureHelpRequest.bind(this));
+		this.registerMessageHandler("textDocument/prepareRename", this.handlePrepareRenameRequest.bind(this));
+		this.registerMessageHandler("textDocument/rename", this.handleRenameRequest.bind(this));
 	}
 
 	private searchForTcl3ConfigPath(folderPath: string): string {
@@ -421,6 +426,20 @@ class LSP {
 		const signatureHelp: SignatureHelp = this.analyzer.getFunctionSignatureHelp(uri, payload.position);
 
 		return signatureHelp;
+	}
+
+	private handlePrepareRenameRequest(message: RequestMessage, payload: PrepareRenameParams) {
+		const uri = cleanUri(payload.textDocument.uri);
+		const renameInfo: PrepareRenameResult = this.analyzer.getPrepareRenameInfo(uri, payload.position);
+
+		return renameInfo;
+	}
+
+	private handleRenameRequest(message: RequestMessage, payload: RenameParams) {
+		const uri = cleanUri(payload.textDocument.uri);
+		const renameInfo: WorkspaceEdit = this.analyzer.getRenameEdits(uri, payload.position, payload.newName);
+
+		return renameInfo;
 	}
 
 	public readFile(filePath: string): string {

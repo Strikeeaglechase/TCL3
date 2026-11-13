@@ -25,7 +25,8 @@ import {
 	Position,
 	Range,
 	SignatureHelp,
-	SignatureInformation
+	SignatureInformation,
+	WorkspaceEdit
 } from "./lspTypes/api.js";
 
 interface TokenTypeRange {
@@ -536,6 +537,65 @@ class Analyzer {
 		}
 
 		return { signatures: [] };
+	}
+
+	public getPrepareRenameInfo(fileUri: string, position: Position): { range: Range; placeholder: string } {
+		const file = this.linker.getFileByUri(fileUri);
+		if (!file) return null;
+
+		const document = this.lsp.getDocument(fileUri);
+		const index = document.positionToIndex(position);
+		const token = this.tokens.find(token => token.fileIdentifier == file.identifier && token.start <= index && token.end >= index);
+		if (!token) return null;
+
+		return {
+			range: {
+				start: document.indexToPosition(token.start),
+				end: document.indexToPosition(token.end)
+			},
+			placeholder: token.value
+		};
+	}
+
+	public getRenameEdits(fileUri: string, position: Position, newName: string): WorkspaceEdit {
+		const file = this.linker.getFileByUri(fileUri);
+		if (!file) return null;
+
+		const document = this.lsp.getDocument(fileUri);
+		const index = document.positionToIndex(position);
+
+		const { detail } = this.getTokenDetailAtIndex(file.identifier, index);
+		const allMatchingDetails = this.compiler.getTokenDetailsMatchingRefId(detail.refId);
+
+		const edits: { fileIdentifier: string; filePath: string; range: Range; newText: string }[] = [];
+		allMatchingDetails.forEach(matchingDetail => {
+			const defFile = this.linker.getFileByIdentifier(matchingDetail.token.fileIdentifier);
+			const detailDocument = this.lsp.getDocument(defFile.filePath);
+
+			edits.push({
+				fileIdentifier: defFile.identifier,
+				filePath: defFile.filePath,
+				range: {
+					start: detailDocument.indexToPosition(matchingDetail.token.start),
+					end: detailDocument.indexToPosition(matchingDetail.token.end)
+				},
+				newText: newName
+			});
+		});
+
+		const workspaceEdit: WorkspaceEdit = {
+			changes: {}
+		};
+
+		edits.forEach(edit => {
+			if (!workspaceEdit.changes[edit.filePath]) workspaceEdit.changes[edit.filePath] = [];
+			workspaceEdit.changes[edit.filePath].push({
+				range: edit.range,
+				newText: edit.newText
+			});
+		});
+
+		return workspaceEdit;
 	}
 
 	// Document symbols

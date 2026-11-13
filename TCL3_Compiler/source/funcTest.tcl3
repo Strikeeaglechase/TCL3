@@ -30,9 +30,9 @@ fn main(): void {
 
 	let test = points[0];
 
-	let a = make_point(1, 2);
+	let b = make_point(1, 2);
 
-	a.scale(points[1])
+	b.scale(points[1])
 
 	out points[0].get_x();
 	out points[1].get_y();
