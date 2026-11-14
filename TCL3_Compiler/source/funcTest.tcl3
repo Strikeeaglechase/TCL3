@@ -1,7 +1,27 @@
+fn map(arr: int*, len: int, lambda: Fn<int, int>): int* {
+	let new_arr = <int*>malloc(len * sizeof(int));
+	
+	for (let i = 0; i < len; i+=1) {
+		new_arr[i] = lambda(arr[i]);
+	}
+
+	return new_arr;
+}
+
 fn main(): void {
 	let lambda = |x: int|: int {
 		return x + 1;
 	}
 
+
+	let map_renamed = map;
+
 	out lambda(1);
+
+	let arr: int[3] = {1, 2, 3};
+	let mapped = map(arr, 3, |x: int| x*2);
+
+	out mapped[0];
+	out mapped[1];
+	out mapped[2];
 }

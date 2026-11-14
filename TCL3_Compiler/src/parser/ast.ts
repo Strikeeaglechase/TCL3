@@ -53,6 +53,7 @@ export interface FunctionDeclaration extends ASTNode {
 	returnType: ASTTypeRef;
 	body: AST[];
 	static: boolean;
+	isLambda: boolean;
 
 	staticKeyword: Token;
 	closeParenToken: Token;

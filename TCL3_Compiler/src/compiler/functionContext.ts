@@ -34,6 +34,7 @@ class FunctionContext implements IType {
 	public readonly argSize: number;
 
 	public readonly isStatic: boolean;
+	public readonly isLambda: boolean = false;
 	public methodForStruct: Struct = null;
 
 	public readonly outLabel: string = null;
@@ -61,6 +62,7 @@ class FunctionContext implements IType {
 		this.argSize = definition.parameters.reduce((acc, param) => acc + this.compiler.resolveTypeSize(param.type), 0);
 		this.builder = this.compiler.builder;
 		this.isStatic = definition.static;
+		this.isLambda = definition.isLambda;
 
 		this.builder.addLabel(this.label);
 	}

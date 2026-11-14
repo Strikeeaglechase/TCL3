@@ -1,6 +1,3 @@
-import chalk from "chalk";
-import fs from "fs";
-import path from "path";
 import { Compiler, TokenDetailInfo, VariableDetailInformation } from "tlc3/compiler/compiler.js";
 import { FunctionListDetailInformation } from "tlc3/compiler/detail.js";
 import { FunctionContext } from "tlc3/compiler/functionContext.js";
@@ -615,6 +612,7 @@ class Analyzer {
 		this.compiler.functions.forEach(funcCtxArr => {
 			funcCtxArr.forEach(funcCtx => {
 				if (funcCtx.definition.location.fileIdentifier !== file.identifier) return;
+				if (funcCtx.isLambda) return;
 
 				symbols.push(this.getSymbolOfFunction(document, funcCtx));
 			});
@@ -720,7 +718,16 @@ class Analyzer {
 
 		return {
 			position: document.indexToPosition(varDecl.nameToken.end),
-			label: `: ${typeToStr(detail.typeRef)}`
+			label: `: ${typeToStr(detail.typeRef)}`,
+			textEdits: [
+				{
+					newText: `: ${typeToStr(detail.typeRef, true)}`,
+					range: {
+						start: document.indexToPosition(varDecl.nameToken.end),
+						end: document.indexToPosition(varDecl.nameToken.end)
+					}
+				}
+			]
 		};
 	}
 
@@ -732,7 +739,16 @@ class Analyzer {
 
 		return {
 			position: document.indexToPosition(fnDetail.definition.closeParenToken.end),
-			label: `: ${typeToStr(fnDetail.typeRef.returnType)}`
+			label: `: ${typeToStr(fnDetail.typeRef.returnType)}`,
+			textEdits: [
+				{
+					newText: `: ${typeToStr(fnDetail.typeRef, true)}`,
+					range: {
+						start: document.indexToPosition(fnDetail.definition.closeParenToken.end),
+						end: document.indexToPosition(fnDetail.definition.closeParenToken.end)
+					}
+				}
+			]
 		};
 	}
 
@@ -803,8 +819,9 @@ class Analyzer {
 			case ASTType.Reference:
 				return [tokenAt(SemanticTokenTypes.variable, node.identifierToken)];
 
+			// "Generated" returns for single-expression non-braced functions won't have a keyword
 			case ASTType.ReturnStatement:
-				return [keywordAt("return", node.location)];
+				return node.location ? [keywordAt("return", node.location)] : [];
 
 			case ASTType.Literal:
 				switch (node.literalType) {
@@ -858,6 +875,7 @@ class Analyzer {
 			case ASTType.Initializer:
 			case ASTType.WrappedTypeRef:
 			case ASTType.Program:
+			case ASTType.LambdaExpression:
 				return [];
 			default:
 				throw new Error(`Unhandled node type: ${(node as any).type}`);

@@ -417,6 +417,7 @@ class Parser {
 			body: body,
 			static: staticKw !== null,
 			staticKeyword: staticKw,
+			isLambda: false,
 			closeParenToken: closeParenToken,
 			bodyEndIndex: endIndex
 		};
@@ -526,8 +527,16 @@ class Parser {
 		} else {
 			const body: AST[] = [];
 			pushIfDef(body, this.parseStatement());
-			const semi = this.tokenStream.consumeTV(TokenType.Symbol, ";");
-			return { body, bracketed: false, endIndex: semi.end };
+			let end = -1;
+			const peaked = this.tokenStream.peak();
+			if (peaked.type == TokenType.Symbol && peaked.value == ";") {
+				const semi = this.tokenStream.consumeTV(TokenType.Symbol, ";");
+				end = semi.end;
+			} else {
+				end = body.length > 0 ? body[0].location.endIndex : this.tokenStream.position;
+			}
+
+			return { body, bracketed: false, endIndex: end };
 		}
 	}
 
@@ -877,7 +886,7 @@ class Parser {
 				return this.parseLambdaExpression(op);
 			}
 			default:
-				throw new Error(`Unexpected operator: ${op}`);
+				throw new Error(`Unexpected operator: ${op.value}`);
 		}
 	}
 

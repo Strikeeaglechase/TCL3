@@ -493,7 +493,7 @@ class Compiler {
 			throw new Error(`Lambda function context not found for lambda expression at ${node.startToken.fileIdentifier}:${node.startToken.start}`);
 
 		this.builder.comment(`Lambda expression ref ${lambdaContext.name}`);
-		this.builder.push(label(lambdaContext.name));
+		this.builder.push(label(lambdaContext.label));
 	}
 
 	private handleOverloadedArrayIndexing(topLevelReference: Reference, tailReference: Reference, type: RawTypeRef, offsetExpression: AST) {
@@ -1299,10 +1299,16 @@ class Compiler {
 				parameters: parameters,
 				returnType: node.returnType,
 				body: node.body,
-				bodyEndIndex: node.body[node.body.length - 1].location.endIndex,
+				bodyEndIndex: node.body[node.body.length - 1]?.location?.endIndex ?? -1,
 				closeParenToken: null,
 				static: false,
-				staticKeyword: null
+				isLambda: true,
+				staticKeyword: null,
+				location: {
+					fileIdentifier: node.startToken.fileIdentifier,
+					startIndex: node.startToken.start,
+					endIndex: node.body[node.body.length - 1]?.location?.endIndex ?? -1
+				}
 			};
 
 			const curContext = this.currentContext;
@@ -1314,6 +1320,7 @@ class Compiler {
 
 	public handleFunctionDeclaration(node: FunctionDeclaration): FunctionContext {
 		// if (this.currentContext != null) throw new Error(`Nested function declarations are not supported.`);
+		this.forwardDeclareLambdaFunctions(node);
 
 		const argSize = node.parameters.reduce((acc, param) => acc + this.resolveTypeSize(param.type), 0);
 		const funcCtx = new FunctionContext(this, node);
@@ -1334,7 +1341,6 @@ class Compiler {
 		// Points to the location of the next argument
 		let argStackOffset = -argSize - 2;
 
-		this.forwardDeclareLambdaFunctions(node);
 		funcCtx.setupTypeInformation();
 
 		this.declareDetailForTypeRef(funcCtx.typeRef.returnType);

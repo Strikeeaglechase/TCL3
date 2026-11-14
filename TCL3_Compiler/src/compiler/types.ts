@@ -15,26 +15,34 @@ const isPrimitiveTypeName = (type: string): type is PrimitiveTypeName => {
 	return primitiveTypeNames.includes(type as PrimitiveTypeName);
 };
 
-function typeToStr(type: ASTTypeRef): string {
+// generateExactTypeText guarantees that the returned type string is valid TLC3 syntax to generate the type
+// Otherwise the function is allowed to generate human readable type strings
+function typeToStr(type: ASTTypeRef, generateExactTypeText = false): string {
 	let result = "";
 	let current = type;
+	let pendingStars = "";
 	while (true) {
 		if (current.type == ASTType.WrappedTypeRef) {
-			result += "*";
+			pendingStars += "*";
 			current = current.inner;
 		} else if (current.type == ASTType.FunctionTypeRef) {
 			let fnType = `Fn<`;
 			current.parameters.forEach((p, idx) => {
 				if (idx > 0) fnType += ", ";
-				if (p.nameToken) fnType += `${p.nameToken.value}: `;
-				fnType += typeToStr(p.type);
+				// if (p.nameToken) fnType += `${p.nameToken.value}: `;
+				fnType += typeToStr(p.type, generateExactTypeText);
 			});
-			if (current.parameters.length > 0) fnType += ", ";
-			fnType += `${typeToStr(current.returnType)}>`;
+			// if (current.parameters.length > 0) fnType += ", ";
+			if (!generateExactTypeText) fnType += `>: ${typeToStr(current.returnType, generateExactTypeText)}`;
+			else fnType += `, ${typeToStr(current.returnType, generateExactTypeText)}>`;
 			result += fnType;
+			result += pendingStars;
+			pendingStars = "";
 			break;
 		} else if (current.type == ASTType.RawTypeRef) {
 			result += current.rawTypeToken.value;
+			result += pendingStars;
+			pendingStars = "";
 			break;
 		}
 	}
