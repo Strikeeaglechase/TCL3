@@ -11,7 +11,7 @@ import { UnitTester } from "./unitTests.js";
 
 const throwOnError = true;
 function linkCompileAndExecute(sourceFilePath: string) {
-	const linker = new Linker(sourceFilePath, { throwOnError: false });
+	const linker = new Linker(sourceFilePath, { throwOnError: throwOnError });
 	linker.enableDebug("../debug");
 	const astProgram = linker.link();
 	linker.getErrors().forEach(err => {
@@ -48,5 +48,5 @@ function executeIrFile(irFilePath: string) {
 	emulator.execute();
 }
 
-linkCompileAndExecute("../source/temp.tcl3");
+linkCompileAndExecute("../source/funcTest.tcl3");
 // executeIrFile("../debug/ir.txt");

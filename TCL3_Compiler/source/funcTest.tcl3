@@ -1,46 +1,7 @@
-#include ./point.tcl3
-// EXPECT: 11
-// EXPECT: 41
-// EXPECT: 24
-// EXPECT: 1
-// EXPECT: 2
-
-
-enum Test {
-	A,
-	B
-}
-
-// ISS-021
-struct First {
-	static fn value(): int {
-		return 1;
-	}
-}
-
-struct Second {
-	static fn value(): int {
-		return 2;
-	}
-}
-
-
 fn main(): void {
-	let points: Point[2] = {make_point(11, 12), make_point(31, 41)};
+	let lambda = |x: int|: int {
+		return x + 1;
+	}
 
-	let test = points[0];
-
-	let b = make_point(1, 2);
-
-	b.scale(points[1])
-
-	out points[0].get_x();
-	out points[1].get_y();
-
-	points[0].scale(2);
-	out points[0].get_y();
-
-
-	out First.value();
-	out Second.value();
+	out lambda(1);
 }

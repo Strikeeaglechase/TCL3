@@ -21,6 +21,7 @@ import {
 	FunctionTypeRef,
 	IfStatement,
 	Initializer,
+	LambdaExpression,
 	Literal,
 	Program,
 	Reference,
@@ -116,7 +117,7 @@ class Parser {
 				case TokenType.Identifier:
 					return this.attachLocation(this.parseIdentifier(token.value, token, 0, allowBinaryExpression), startIndex);
 				case TokenType.Operator:
-					return this.attachLocation(this.parseOperator(token.value, allowBinaryExpression), startIndex);
+					return this.attachLocation(this.parseOperator(token, allowBinaryExpression), startIndex);
 				case TokenType.Symbol:
 					return this.attachLocation(this.parseSymbol(token.value, allowBinaryExpression), startIndex);
 				case TokenType.LiteralNumber:
@@ -819,9 +820,9 @@ class Parser {
 		return call;
 	}
 
-	private parseOperator(op: string, allowBinaryExpression: boolean): AST {
+	private parseOperator(op: Token, allowBinaryExpression: boolean): AST {
 		const startTokenIndex = this.tokenStream.position - 1; // The operator token has already been consumed
-		switch (op) {
+		switch (op.value) {
 			case "&": {
 				const ref = this.parseStatement(false);
 				if (ref.type != ASTType.Reference) throw new Error(`Cannot take address of non-reference type`);
@@ -853,7 +854,7 @@ class Parser {
 				const operand = this.parseStatement(false);
 				const unaryExpr: UnaryExpression = {
 					type: ASTType.UnaryExpression,
-					operator: op,
+					operator: op.value,
 					operand: operand,
 					location: this.spanFromStartingTokenIndex(startTokenIndex)
 				};
@@ -872,10 +873,49 @@ class Parser {
 
 				return cast;
 			}
-			// case ""
+			case "|": {
+				return this.parseLambdaExpression(op);
+			}
 			default:
 				throw new Error(`Unexpected operator: ${op}`);
 		}
+	}
+
+	private parseLambdaExpression(startToken: Token) {
+		const parameters: { nameToken: Token; type: ASTTypeRef }[] = [];
+		while (!this.tokenStream.eof()) {
+			const name = this.tokenStream.consumeType(TokenType.Identifier);
+			this.tokenStream.consumeTV(TokenType.Symbol, ":");
+			const { type } = this.parseTypeRef();
+			parameters.push({ nameToken: name, type });
+
+			if (!this.tokenStream.maybeConsumeTV(TokenType.Symbol, ",")) break;
+		}
+
+		this.tokenStream.consumeTV(TokenType.Operator, "|");
+
+		let returnType: ASTTypeRef = null;
+		if (this.tokenStream.maybeConsumeTV(TokenType.Symbol, ":")) {
+			returnType = this.parseTypeRef().type;
+		}
+
+		const { body, bracketed, endIndex } = this.parseOptionallyBracketedBlock();
+
+		if (!bracketed) {
+			// If the body is not bracketed, we need to wrap it in a return statement
+			body[0] = { type: ASTType.ReturnStatement, expression: body[0] };
+		}
+
+		const lambda: LambdaExpression = {
+			type: ASTType.LambdaExpression,
+			parameters: parameters,
+			returnType: returnType,
+			body: body,
+			startToken: startToken
+			// bodyEndIndex: endIndex
+		};
+
+		return lambda;
 	}
 
 	private parseInitializer() {

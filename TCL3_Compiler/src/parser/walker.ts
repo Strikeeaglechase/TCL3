@@ -74,6 +74,11 @@ const walkNodeHandlers: WalkHandlersMap = {
 	[ASTType.TypeCast]: (node, visitor) => {
 		visitor(node.castType);
 		visitor(node.expression);
+	},
+	[ASTType.LambdaExpression]: (node, visitor) => {
+		node.parameters.forEach(param => visitor(param.type));
+		visitor(node.returnType);
+		node.body.forEach(visitor);
 	}
 };
 
@@ -87,4 +92,16 @@ const walk = (node: AST, visitor: (node: AST, depth: number) => void, depth = 0)
 	});
 };
 
-export { walk, walkNodeHandlers };
+const walkButAvoid = (node: AST, avoidTypes: ASTType[], visitor: (node: AST, depth: number) => void, depth = 0) => {
+	if (!node) return;
+	if (avoidTypes.includes(node.type)) return;
+
+	visitor(node, depth);
+
+	const handler = walkNodeHandlers[node.type] as (node: AST, visitor: (node: AST, depth: number) => void) => void;
+	handler(node, childNode => {
+		walkButAvoid(childNode, avoidTypes, visitor, depth + 1);
+	});
+};
+
+export { walk, walkButAvoid, walkNodeHandlers };

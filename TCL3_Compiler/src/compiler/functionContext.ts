@@ -4,7 +4,7 @@ import { Register } from "../ir/ir.js";
 import { imm, IRBuilder, label, memReg, reg } from "../ir/irBuilder.js";
 import { ASTType, ASTTypeRef, FunctionDeclaration, FunctionTypeRef, Reference, ReturnStatement, VariableDeclaration } from "../parser/ast.js";
 import { mainFnName, Token } from "../parser/tokenizer.js";
-import { walk } from "../parser/walker.js";
+import { walk, walkButAvoid } from "../parser/walker.js";
 import { Compiler, FunctionCallInfo, returnPointerName, TokenDetailInfo, VariableDetailInformation } from "./compiler.js";
 import { typeToStr } from "./types.js";
 import { IType, Struct } from "./userTypes.js";
@@ -68,7 +68,7 @@ class FunctionContext implements IType {
 	private checkOrResolveReturnType() {
 		this.returnType = this.definition.returnType;
 		const returns: ReturnStatement[] = [];
-		walk(this.definition, n => {
+		walkButAvoid(this.definition, [ASTType.LambdaExpression], n => {
 			if (n.type === ASTType.ReturnStatement) returns.push(n);
 		});
 

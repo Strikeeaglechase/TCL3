@@ -31,7 +31,8 @@ export enum ASTType {
 	Block = "Block",
 	BreakStatement = "BreakStatement",
 	ContinueStatement = "ContinueStatement",
-	TypeCast = "TypeCast"
+	TypeCast = "TypeCast",
+	LambdaExpression = "LambdaExpression"
 }
 
 export interface ASTNode {
@@ -220,6 +221,14 @@ export interface TypeCast extends ASTNode {
 	expression: AST;
 }
 
+export interface LambdaExpression extends ASTNode {
+	type: ASTType.LambdaExpression;
+	startToken: Token;
+	parameters: { nameToken: Token; type: ASTTypeRef }[];
+	returnType: ASTTypeRef;
+	body: AST[];
+}
+
 export type ASTTypeRef = WrappedTypeRef | FunctionTypeRef | RawTypeRef;
 
 export type AST =
@@ -252,4 +261,5 @@ export type AST =
 	| Dereference
 	| BreakStatement
 	| ContinueStatement
-	| TypeCast;
+	| TypeCast
+	| LambdaExpression;

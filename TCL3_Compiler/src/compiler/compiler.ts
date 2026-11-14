@@ -16,6 +16,7 @@ import {
 	FunctionDeclaration,
 	FunctionTypeRef,
 	IfStatement,
+	LambdaExpression,
 	Literal,
 	OutStatement,
 	Program,
@@ -30,6 +31,7 @@ import {
 	WrappedTypeRef
 } from "../parser/ast.js";
 import { mainFnName, resultTypeIsBoolOperands, Token, TokenType } from "../parser/tokenizer.js";
+import { walk } from "../parser/walker.js";
 import { BuiltInFunction, builtInFunctions } from "./builtInFunctions.js";
 import { BuiltInTypeRefDetailInformation, FunctionListDetailInformation, TokenDetailInfo, VariableDetailInformation } from "./detail.js";
 import { FunctionContext } from "./functionContext.js";
@@ -99,6 +101,7 @@ class Compiler {
 	public structs: Map<string, Struct> = new Map();
 	public enums: Map<string, Enum> = new Map();
 	public functions: Map<string, FunctionContext[]> = new Map();
+	private lambdaFunctions: Map<LambdaExpression, FunctionContext> = new Map();
 	private mainLabel: string = mainFnName;
 
 	private continueLabelStack: string[] = [];
@@ -288,6 +291,9 @@ class Compiler {
 				break;
 			case ASTType.TypeCast:
 				this.handleTypeCast(node);
+				break;
+			case ASTType.LambdaExpression:
+				this.handleLambdaExpression(node);
 				break;
 			default:
 				throw new Error(`Unsupported AST node type: ${node.type}`);
@@ -479,6 +485,15 @@ class Compiler {
 
 		// Adjust stack pointer to remove the values we just popped off
 		this.builder.sub(reg(Register.sp), imm(finalTypeSize), reg(Register.sp));
+	}
+
+	private handleLambdaExpression(node: LambdaExpression) {
+		const lambdaContext = this.lambdaFunctions.get(node);
+		if (!lambdaContext)
+			throw new Error(`Lambda function context not found for lambda expression at ${node.startToken.fileIdentifier}:${node.startToken.start}`);
+
+		this.builder.comment(`Lambda expression ref ${lambdaContext.name}`);
+		this.builder.push(label(lambdaContext.name));
 	}
 
 	private handleOverloadedArrayIndexing(topLevelReference: Reference, tailReference: Reference, type: RawTypeRef, offsetExpression: AST) {
@@ -1079,6 +1094,8 @@ class Compiler {
 				return expression.castType;
 			case ASTType.Semicolon:
 				return voidType();
+			case ASTType.LambdaExpression:
+				return this.getReturnTypeForLambdaDeclaration(expression);
 			default:
 				// console.log(chalk.yellow(`Cannot infer type from initializer of type: ${expression.type}`));
 				throw new Error(`Cannot infer type from initializer of type: ${expression.type}`);
@@ -1254,6 +1271,45 @@ class Compiler {
 		if (existingTypeSig) throw new Error(`Function '${node.nameToken.value}' with the same type signature already exists.`);
 
 		this.functions.get(node.name).push(funcCtx);
+
+		return funcCtx;
+	}
+
+	private forwardDeclareLambdaFunctions(funcDef: FunctionDeclaration) {
+		walk(funcDef, node => {
+			if (node.type != ASTType.LambdaExpression) return;
+
+			const parameters = node.parameters.map((param): FunctionDeclaration["parameters"][number] => {
+				return {
+					name: param.nameToken.value,
+					nameToken: param.nameToken,
+					type: param.type,
+					location: {
+						fileIdentifier: param.nameToken.fileIdentifier,
+						startIndex: param.nameToken.start,
+						endIndex: param.nameToken.end
+					}
+				};
+			});
+
+			const funcDeclNode: FunctionDeclaration = {
+				type: ASTType.FunctionDeclaration,
+				name: `lambda_${id++}`,
+				nameToken: node.startToken,
+				parameters: parameters,
+				returnType: node.returnType,
+				body: node.body,
+				bodyEndIndex: node.body[node.body.length - 1].location.endIndex,
+				closeParenToken: null,
+				static: false,
+				staticKeyword: null
+			};
+
+			const curContext = this.currentContext;
+			const ctx = this.handleTopLevelFunctionDeclaration(funcDeclNode);
+			this.lambdaFunctions.set(node, ctx);
+			this.currentContext = curContext; // Restore context after forward declare
+		});
 	}
 
 	public handleFunctionDeclaration(node: FunctionDeclaration): FunctionContext {
@@ -1278,6 +1334,7 @@ class Compiler {
 		// Points to the location of the next argument
 		let argStackOffset = -argSize - 2;
 
+		this.forwardDeclareLambdaFunctions(node);
 		funcCtx.setupTypeInformation();
 
 		this.declareDetailForTypeRef(funcCtx.typeRef.returnType);
@@ -1392,6 +1449,14 @@ class Compiler {
 			throw new Error(`Attempt to call a non-function type '${typeToStr(fnType)}' for reference '${referenceToString(call.reference, true)}'.`);
 
 		return fnType.returnType;
+	}
+
+	private getReturnTypeForLambdaDeclaration(lambda: LambdaExpression): FunctionTypeRef {
+		const funcCtx = this.lambdaFunctions.get(lambda);
+		if (!funcCtx)
+			throw new Error(`Lambda function context not found for lambda expression at ${lambda.startToken.fileIdentifier}:${lambda.startToken.start}`);
+
+		return funcCtx.typeRef;
 	}
 
 	private handleFunctionCall(node: FunctionCall) {
