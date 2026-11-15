@@ -31,13 +31,14 @@ class TargetFile {
 
 	constructor(
 		filePath: string,
-		private opts: LinkerOptions
+		public readonly typeParameters: string[],
+		private readonly opts: LinkerOptions
 	) {
 		this.filePath = opts.pathResolver(filePath);
 		this.identifier = `file_${path.basename(filePath)}_${globalFileCounter++}`;
 		this.content = opts.readFile(this.filePath);
 
-		this.tokenizer = new Tokenizer(this.content, opts.throwOnError, this.identifier);
+		this.tokenizer = new Tokenizer(this.content, typeParameters, opts.throwOnError, this.identifier);
 		const tokenizeResult = this.tokenizer.tokenize();
 		this.includes = tokenizeResult.includes;
 		this.exports = tokenizeResult.exports;

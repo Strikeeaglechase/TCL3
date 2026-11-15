@@ -1,5 +1,5 @@
 import { TokenizerError } from "../errors.js";
-import { Stream } from "../stream.js";
+import { CharStream } from "../stream.js";
 
 const topLevelKeywords = ["fn", "struct", "enum"];
 const keywords = [...topLevelKeywords, "if", "else", "elif", "while", "for", "return", "let", "out", "break", "continue", "static"];
@@ -57,7 +57,8 @@ enum TokenType {
 enum PreprocessDirectiveKind {
 	Define = "define",
 	Export = "export",
-	Include = "include"
+	Include = "include",
+	Parameter = "parameter"
 }
 
 type NonPositionToken = Omit<Token, "start" | "end" | "fileIdentifier">;
@@ -71,6 +72,7 @@ interface Token {
 
 interface Include {
 	path: string;
+	typeParameters: string[];
 	start: number;
 	end: number;
 }
@@ -81,27 +83,36 @@ interface Export {
 	end: number;
 }
 
+interface TypeParameter {
+	name: string;
+	validTypes: string[];
+	providedType: string;
+}
+
 interface TokenizeResult {
 	tokens: Token[];
 	exports: Export[];
 	includes: Include[];
+	typeParameters: TypeParameter[];
 }
 
 class Tokenizer {
-	private charStream: Stream<string>;
+	private charStream: CharStream;
 	private defines: Map<string, Token[]> = new Map();
 	private exports: Export[] = [];
 	private includes: Include[] = [];
 	private tokens: Token[] = [];
+	private typeParameters: TypeParameter[] = [];
 
 	public errors: TokenizerError[] = [];
 
 	constructor(
 		input: string,
+		private inputTypeParams: string[],
 		private throwOnError: boolean,
 		private fileIdentifier: string
 	) {
-		this.charStream = new Stream(input.split(""));
+		this.charStream = new CharStream(input.split(""));
 	}
 
 	public tokenize(): TokenizeResult {
@@ -136,7 +147,7 @@ class Tokenizer {
 			}
 		}
 
-		return { tokens: this.tokens, exports: this.exports, includes: this.includes };
+		return { tokens: this.tokens, exports: this.exports, includes: this.includes, typeParameters: this.typeParameters };
 	}
 
 	private readToken(): NonPositionToken | NonPositionToken[] {
@@ -230,7 +241,7 @@ class Tokenizer {
 				const defineValue = this.charStream.readUntilAndConsume("\n").join("").trim();
 				if (this.defines.has(defineName)) throw new Error(`Redefinition of preprocessor define: ${defineName}`);
 
-				const { tokens: defineTokens } = new Tokenizer(defineValue, this.throwOnError, ``).tokenize();
+				const { tokens: defineTokens } = new Tokenizer(defineValue, [], this.throwOnError, ``).tokenize();
 				this.defines.set(defineName, defineTokens);
 
 				return { type: TokenType.PreprocessorDirective, value: `${preprocessorDirectiveStart}${preprocessor} ${defineName} ${defineValue}` };
@@ -243,8 +254,43 @@ class Tokenizer {
 			case PreprocessDirectiveKind.Include:
 				const includeStart = this.charStream.position;
 				const includeFile = this.charStream.readUntilAndConsume("\n").join("").trim();
-				this.includes.push({ path: includeFile, start: includeStart, end: this.charStream.position });
+				const [_, path, typeParamsList] = includeFile.match(/"(.+)"(?: <(.+)>)?/) || [];
+				if (!path) throw new Error(`Invalid include directive: ${includeFile}`);
+
+				const typeParams = (typeParamsList || "")
+					.split(",")
+					.map(s => s.trim())
+					.filter(s => s.length > 0);
+
+				this.includes.push({
+					path: path,
+					typeParameters: typeParams,
+					start: includeStart,
+					end: this.charStream.position
+				});
 				return { type: TokenType.PreprocessorDirective, value: `${preprocessorDirectiveStart}${preprocessor} ${includeFile}` };
+			case PreprocessDirectiveKind.Parameter:
+				const paramLine = this.charStream.readUntilAndConsume("\n").join("").trim();
+				const [__, paramName, validTypeList] = paramLine.match(/(.+): (.+)/) || [];
+				if (!paramName || !validTypeList) throw new Error(`Invalid parameter directive: ${paramLine}`);
+
+				const validTypes = validTypeList
+					.split(",")
+					.map(s => s.trim())
+					.filter(s => s.length > 0);
+
+				const typeParam: TypeParameter = {
+					name: paramName,
+					validTypes: validTypes,
+					providedType: this.inputTypeParams[this.typeParameters.length]
+				};
+				this.typeParameters.push(typeParam);
+
+				if (!typeParam.providedType) throw new Error(`Missing input type parameter for ${paramName}`);
+
+				this.charStream.findAndReplace(`%${typeParam.name}%`, typeParam.providedType);
+
+				return { type: TokenType.PreprocessorDirective, value: `${preprocessorDirectiveStart}${preprocessor} ${paramLine}` };
 			default:
 				throw new Error(`Unknown preprocessor directive: ${preprocessor}`);
 		}
@@ -265,6 +311,7 @@ export {
 	TokenizeResult,
 	Include,
 	Export,
+	TypeParameter,
 	operandPrecedence,
 	selfAssignMathOps,
 	resultTypeIsBoolOperands,

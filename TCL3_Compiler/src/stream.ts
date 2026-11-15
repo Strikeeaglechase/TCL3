@@ -61,6 +61,87 @@ class Stream<T> {
 	}
 }
 
+class CharStream {
+	private index: number = 0;
+	private data: { char: string; index: number }[] = [];
+	public position: number = 0;
+
+	constructor(data: string[]) {
+		this.data = data.map((char, idx) => ({ char, index: idx }));
+	}
+
+	public peak() {
+		return this.data[this.index].char;
+	}
+
+	public next() {
+		const value = this.data[this.index++];
+		this.position = value.index;
+		return value.char;
+	}
+
+	public eof(): boolean {
+		return this.index >= this.data.length;
+	}
+
+	public readUntil(predicate: string | ((value: string) => boolean)): string[] {
+		const result: string[] = [];
+		if (isPredicate(predicate)) {
+			while (!this.eof() && !predicate(this.peak())) {
+				result.push(this.next());
+			}
+		} else {
+			while (!this.eof() && this.peak() !== predicate) {
+				result.push(this.next());
+			}
+		}
+
+		return result;
+	}
+
+	public readUntilAndSkip(predicate: string | ((value: string) => boolean)): string[] {
+		const result = this.readUntil(predicate);
+		this.next(); // Skip the item that satisfied the predicate
+		return result;
+	}
+
+	public readUntilAndConsume(value: string): string[];
+	public readUntilAndConsume(predicate: (value: string) => boolean, expected: string): string[];
+	public readUntilAndConsume(predicate: string | ((value: string) => boolean), expected?: string): string[] {
+		const result = this.readUntil(predicate);
+		if (expected) this.consume(expected);
+		else this.consume(predicate as string);
+		return result;
+	}
+
+	public consume(expected: string): string {
+		const value = this.next();
+		if (value !== expected) {
+			throw new Error(`Expected ${expected} but got ${this.peak()}`);
+		}
+
+		return value;
+	}
+
+	public findAndReplace(find: string, replace: string): void {
+		for (let i = 0; i < this.data.length; i++) {
+			let match = true;
+			for (let j = 0; j < find.length; j++) {
+				if (this.data[i + j].char !== find[j]) {
+					match = false;
+					break;
+				}
+			}
+
+			if (match) {
+				const insert = replace.split("").map((char, idx) => ({ char, index: this.data[i].index + idx }));
+				this.data.splice(i, find.length, ...insert);
+				i += replace.length - 1; // Move index to the end of the replaced string
+			}
+		}
+	}
+}
+
 class TypedObjectStream<T extends { type: unknown; value: unknown }> extends Stream<T> {
 	public consumeType(expectedType: T["type"]): T {
 		const value = this.peak();
@@ -92,4 +173,4 @@ class TypedObjectStream<T extends { type: unknown; value: unknown }> extends Str
 	}
 }
 
-export { Stream, TypedObjectStream };
+export { Stream, CharStream, TypedObjectStream };

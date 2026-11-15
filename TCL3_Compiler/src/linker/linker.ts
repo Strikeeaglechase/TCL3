@@ -41,7 +41,7 @@ class Linker {
 
 	constructor(targetFilePath: string, options: Partial<LinkerOptions> = {}) {
 		this.options = { ...defaultLinkerOptions, ...options };
-		this.entryFile = this.addFile(targetFilePath);
+		this.entryFile = this.addFile(targetFilePath, []);
 	}
 
 	public enableDebug(debugDir: string) {
@@ -93,11 +93,11 @@ class Linker {
 		return combinedAST;
 	}
 
-	private addFile(filePath: string) {
-		const existingFile = this.files.find(f => f.isSameAs(filePath));
+	private addFile(filePath: string, typeParameters: string[]) {
+		const existingFile = this.files.find(f => f.isSameAs(filePath) && f.typeParameters.join(",") == typeParameters.join(","));
 		if (existingFile) return existingFile;
 
-		const file = new TargetFile(filePath, this.options);
+		const file = new TargetFile(filePath, typeParameters, this.options);
 		this.files.push(file);
 		this.identifierToFileMap.set(file.identifier, file);
 
@@ -111,7 +111,7 @@ class Linker {
 				return null;
 			}
 
-			return this.addFile(resolvedIncludePath);
+			return this.addFile(resolvedIncludePath, include.typeParameters);
 		});
 
 		file.setDependencies(dependencies.filter(dep => dep != null));

@@ -1,0 +1,15 @@
+#parameter T: int, bool
+
+#export List_%T%
+struct List_%T% {
+	data: %T%*;
+	length: int;
+
+	static fn new(length: int): List_%T% {
+		let list: List_%T% = {length: length};
+
+		list.data = <%T%*>malloc(length * sizeof(%T%));
+
+		return list;
+	}
+}

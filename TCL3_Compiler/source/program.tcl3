@@ -1,5 +1,5 @@
 #define SCALAR 5
-#include ./point.tcl3
+#include "./point.tcl3"
 
 fn add_points(p1: Point, p2: Point): Point {
 	return p1 + p2;

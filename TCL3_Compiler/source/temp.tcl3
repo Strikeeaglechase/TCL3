@@ -1,4 +1,4 @@
-#include ./point.tcl3
+#include "./point.tcl3"
 // EXPECT: 11
 // EXPECT: 41
 // EXPECT: 24
