@@ -3,6 +3,6 @@
 
 
 fn main(): void {
-	let iList: List_int = List_int.new(5);
-	let bList: List_bool = List_bool.new(5);
+	let iList = intList.new(5);
+	let bList = boolList.new(5);
 }

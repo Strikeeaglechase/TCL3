@@ -62,6 +62,14 @@ const intType = (): RawTypeRef => {
 	return rawTypeOf("int");
 };
 
+const errorType = (): RawTypeRef => {
+	return {
+		type: ASTType.RawTypeRef,
+		rawType: "int",
+		rawTypeToken: { type: TokenType.Identifier, value: "(unknown)", start: -1, end: -1, fileIdentifier: `generated` }
+	};
+};
+
 const charType = (): RawTypeRef => {
 	return rawTypeOf("char");
 };
@@ -78,4 +86,17 @@ const ptrOf = (type: ASTTypeRef): WrappedTypeRef => {
 	return { type: ASTType.WrappedTypeRef, inner: type };
 };
 
-export { primitiveSizeMap, typeToStr, rawTypeOf, intType, charType, boolType, voidType, ptrOf, primitiveTypeNames, PrimitiveTypeName, isPrimitiveTypeName };
+export {
+	primitiveSizeMap,
+	typeToStr,
+	rawTypeOf,
+	intType,
+	charType,
+	boolType,
+	voidType,
+	ptrOf,
+	errorType,
+	primitiveTypeNames,
+	PrimitiveTypeName,
+	isPrimitiveTypeName
+};

@@ -35,7 +35,7 @@ import { walk } from "../parser/walker.js";
 import { BuiltInFunction, builtInFunctions } from "./builtInFunctions.js";
 import { BuiltInTypeRefDetailInformation, FunctionListDetailInformation, TokenDetailInfo, VariableDetailInformation } from "./detail.js";
 import { FunctionContext } from "./functionContext.js";
-import { boolType, charType, intType, isPrimitiveTypeName, primitiveSizeMap, ptrOf, typeToStr, voidType } from "./types.js";
+import { boolType, charType, errorType, intType, isPrimitiveTypeName, primitiveSizeMap, ptrOf, typeToStr, voidType } from "./types.js";
 import { Enum, Struct } from "./userTypes.js";
 
 function referenceToString(ref: Reference, useTokenValues = false): string {
@@ -1054,6 +1054,22 @@ class Compiler {
 	}
 
 	public inferTypeFrom(expression: AST): ASTTypeRef {
+		try {
+			return this.inferTypeFromInner(expression);
+		} catch (e) {
+			if (this.throwOnError) throw e;
+
+			let error = e;
+			if (!(e instanceof CompilerError)) {
+				error = new CompilerError(e, expression.location);
+			}
+			this.errors.push(error);
+
+			return errorType();
+		}
+	}
+
+	private inferTypeFromInner(expression: AST): ASTTypeRef {
 		if (!expression) return intType();
 		switch (expression.type) {
 			case ASTType.Literal:

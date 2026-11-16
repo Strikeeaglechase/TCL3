@@ -9,7 +9,7 @@ import { IROptimizer } from "./ir/irOptimizer.js";
 import { Linker } from "./linker/linker.js";
 import { UnitTester } from "./unitTests.js";
 
-const throwOnError = true;
+const throwOnError = false;
 function linkCompileAndExecute(sourceFilePath: string) {
 	const linker = new Linker(sourceFilePath, { throwOnError: throwOnError });
 	linker.enableDebug("../debug");
@@ -37,7 +37,7 @@ function linkCompileAndExecute(sourceFilePath: string) {
 	console.log(`Unoptimized ticks ${unoptResult.ticks}, Optimized ticks: ${opResult.ticks}`);
 
 	const unitTester = new UnitTester();
-	unitTester.runTests();
+	// unitTester.runTests();
 }
 
 function executeIrFile(irFilePath: string) {
@@ -48,5 +48,7 @@ function executeIrFile(irFilePath: string) {
 	emulator.execute();
 }
 
+// const artifacts = Linker.build("../source/tcl3Config.json");
+// console.log(artifacts);
 linkCompileAndExecute("../source/funcTest.tcl3");
 // executeIrFile("../debug/ir.txt");

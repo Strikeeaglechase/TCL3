@@ -292,6 +292,7 @@ class Parser {
 		const fields: StructDeclaration["fields"] = [];
 		const methods: FunctionDeclaration[] = [];
 		while (!this.tokenStream.eof()) {
+			// try {
 			const peaked = this.tokenStream.peak();
 			if (peaked.type == TokenType.Symbol && peaked.value == "}") break;
 
@@ -322,6 +323,11 @@ class Parser {
 			} else {
 				throw new Error(`Unexpected token in struct declaration: ${peaked.type} ${peaked.value}`);
 			}
+			// } catch (e) {
+			// 	const err = new ParserError(e, this.spanFromStartingTokenIndex(this.tokenStream.position - 1));
+			// 	if (this.throwOnError) throw err;
+			// 	this.parseErrors.push(err);
+			// }
 		}
 
 		const endBracket = this.tokenStream.consumeTV(TokenType.Symbol, "}");
@@ -381,48 +387,58 @@ class Parser {
 	}
 
 	private handleFunctionDeclaration(structMethod: boolean, staticKw: Token) {
-		const startTokenIndex = this.tokenStream.position - 1; // The 'fn' token was already consumed
-		const nameToken = this.tokenStream.next();
-		let name = nameToken.value;
-		// Operator overloaded function
-		if (nameToken.type == TokenType.LiteralString) {
-			const operator = nameToken.value;
-			if (!allowedOperatorOverloads.includes(operator)) {
-				throw new Error(`Operator ${nameToken.value} is not allowed to be overloaded`);
+		try {
+			const startTokenIndex = this.tokenStream.position - 1; // The 'fn' token was already consumed
+			const nameToken = this.tokenStream.next();
+			let name = nameToken.value;
+			// Operator overloaded function
+			if (nameToken.type == TokenType.LiteralString) {
+				const operator = nameToken.value;
+				if (!allowedOperatorOverloads.includes(operator)) {
+					throw new Error(`Operator ${nameToken.value} is not allowed to be overloaded`);
+				}
+
+				name = operator;
+			} else if (nameToken.type != TokenType.Identifier) {
+				throw new Error(`Unexpected token type for function name: ${nameToken.type}`);
+			} else if (!structMethod) {
+				name = this.maybeRewriteName(name);
 			}
 
-			name = operator;
-		} else if (nameToken.type != TokenType.Identifier) {
-			throw new Error(`Unexpected token type for function name: ${nameToken.type}`);
-		} else if (!structMethod) {
-			name = this.maybeRewriteName(name);
+			const { parameters, closeParenToken } = this.parseParenthesizedParameterList();
+			let returnType: ASTTypeRef = null;
+			if (this.tokenStream.maybeConsumeTV(TokenType.Symbol, ":")) {
+				returnType = this.parseTypeRef().type;
+			}
+
+			let { body, bracketed, endIndex } = this.parseOptionallyBracketedBlock();
+
+			if (!bracketed) body = [{ type: ASTType.ReturnStatement, expression: body[0] }];
+
+			const funcDecl: FunctionDeclaration = {
+				type: ASTType.FunctionDeclaration,
+				name: name,
+				nameToken: nameToken,
+				parameters: parameters,
+				returnType: returnType,
+				body: body,
+				static: staticKw !== null,
+				staticKeyword: staticKw,
+				isLambda: false,
+				closeParenToken: closeParenToken,
+				bodyEndIndex: endIndex
+			};
+
+			return this.attachLocation(funcDecl, startTokenIndex);
+		} catch (e) {
+			let error = e;
+			if (!(e instanceof ParserError)) {
+				error = new ParserError(e, this.spanFromStartingTokenIndex(this.tokenStream.position - 1));
+			}
+
+			this.parseErrors.push(error);
+			if (this.throwOnError) throw error;
 		}
-
-		const { parameters, closeParenToken } = this.parseParenthesizedParameterList();
-		let returnType: ASTTypeRef = null;
-		if (this.tokenStream.maybeConsumeTV(TokenType.Symbol, ":")) {
-			returnType = this.parseTypeRef().type;
-		}
-
-		let { body, bracketed, endIndex } = this.parseOptionallyBracketedBlock();
-
-		if (!bracketed) body = [{ type: ASTType.ReturnStatement, expression: body[0] }];
-
-		const funcDecl: FunctionDeclaration = {
-			type: ASTType.FunctionDeclaration,
-			name: name,
-			nameToken: nameToken,
-			parameters: parameters,
-			returnType: returnType,
-			body: body,
-			static: staticKw !== null,
-			staticKeyword: staticKw,
-			isLambda: false,
-			closeParenToken: closeParenToken,
-			bodyEndIndex: endIndex
-		};
-
-		return this.attachLocation(funcDecl, startTokenIndex);
 	}
 
 	private handleVariableDeclaration() {
@@ -1000,6 +1016,10 @@ class Parser {
 
 			// 	return cast;
 			default:
+				// We want to avoid consuming closing symbols, as we want to still parse as much as we can.
+				if (symbol == "}" || symbol == "]" || symbol == ")") {
+					this.tokenStream.stepBack();
+				}
 				throw new Error(`Unexpected symbol: ${symbol}`);
 		}
 	}

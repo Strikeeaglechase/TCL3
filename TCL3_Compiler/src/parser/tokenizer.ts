@@ -106,6 +106,7 @@ class Tokenizer {
 
 	public errors: TokenizerError[] = [];
 
+	private exitTokenizeAttempt = false;
 	constructor(
 		input: string,
 		private inputTypeParams: string[],
@@ -117,6 +118,8 @@ class Tokenizer {
 
 	public tokenize(): TokenizeResult {
 		while (!this.charStream.eof()) {
+			if (this.exitTokenizeAttempt) break;
+
 			const startPos = this.charStream.position;
 			// May be multiple due to preprocessor define
 			let tokens: NonPositionToken | NonPositionToken[];
@@ -286,7 +289,10 @@ class Tokenizer {
 				};
 				this.typeParameters.push(typeParam);
 
-				if (!typeParam.providedType) throw new Error(`Missing input type parameter for ${paramName}`);
+				if (!typeParam.providedType) {
+					this.exitTokenizeAttempt = true;
+					throw new Error(`Missing input type parameter for ${paramName}`);
+				}
 
 				this.charStream.findAndReplace(`%${typeParam.name}%`, typeParam.providedType);
 

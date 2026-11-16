@@ -59,6 +59,10 @@ class Stream<T> {
 
 		return value;
 	}
+
+	public stepBack() {
+		this.index--;
+	}
 }
 
 class CharStream {
@@ -76,7 +80,7 @@ class CharStream {
 
 	public next() {
 		const value = this.data[this.index++];
-		this.position = value.index;
+		this.position = value.index + 1;
 		return value.char;
 	}
 
@@ -154,11 +158,12 @@ class TypedObjectStream<T extends { type: unknown; value: unknown }> extends Str
 	}
 
 	public consumeTV(expectedType: T["type"], expectedValue: T["value"]): T {
-		const value = this.next();
+		const value = this.peak();
 		if (value.type !== expectedType || value.value !== expectedValue) {
 			throw new Error(`Expected '${expectedType}' with value of '${expectedValue}' but got '${value.type}' with value of '${value.value}'`);
 		}
 
+		this.next();
 		return value;
 	}
 

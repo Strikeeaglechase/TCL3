@@ -1,15 +1,20 @@
-#parameter T: int, bool
+#parameter T: any
 
-#export List_%T%
-struct List_%T% {
+#export %T%List
+struct %T%List {
 	data: %T%*;
 	length: int;
+	capacity: int;
 
-	static fn new(length: int): List_%T% {
-		let list: List_%T% = {length: length};
+	static fn new(length: int): %T%List {
+		let list: %T%List = {length: 0, capacity: length};
 
 		list.data = <%T%*>malloc(length * sizeof(%T%));
 
 		return list;
+	}
+
+	fn push(value: %T%): void {
+		if (this->)
 	}
 }

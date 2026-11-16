@@ -274,10 +274,11 @@ class Analyzer {
 	}
 
 	private getPreviousTokenBeforePosition(document: Document, file: TargetFile, position: Position): Token {
-		const token = this.tokens.find(
-			t => t.fileIdentifier == file.identifier && t.start <= document.positionToIndex(position) - 1 && t.end >= document.positionToIndex(position) - 1
+		const positionTokenIndex = this.tokens.findIndex(
+			t => t.fileIdentifier == file.identifier && t.start <= document.positionToIndex(position) && t.end >= document.positionToIndex(position)
 		);
 
+		const token = this.tokens[positionTokenIndex - 1];
 		return token;
 	}
 
@@ -317,13 +318,14 @@ class Analyzer {
 			return [...typeCompletions, ...builtinTypeCompletions];
 		}
 
-		if (triggerCharacter != ".") return [];
+		if (triggerCharacter != "." && triggerCharacter != ">") return [];
 
 		// Get token before trigger character
 		const token = this.getPreviousTokenBeforePosition(document, file, position);
 		if (!token) return [];
 
 		const detail = this.compiler.getTokenDetail(token);
+		console.log({ token, detail });
 		if (!detail) return [];
 
 		// Static function calls
@@ -360,11 +362,13 @@ class Analyzer {
 
 		// Field ref
 		if (detail instanceof VariableDetailInformation) {
-			const type = detail.typeRef;
-			if (type.type != ASTType.RawTypeRef) {
-				console.log(`Non raw ref: `, type);
-				return [];
+			let type = detail.typeRef;
+			if (type.type == ASTType.WrappedTypeRef && triggerCharacter == ">") {
+				type = type.inner;
+				console.log(`Unwrap to: `, type);
 			}
+
+			if (type.type != ASTType.RawTypeRef) return [];
 
 			const struct = this.compiler.structs.get(type.rawType);
 			const completions: CompletionItem[] = [];
