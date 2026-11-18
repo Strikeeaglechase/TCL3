@@ -129,9 +129,24 @@ class Linker {
 
 	public getErrors() {
 		const errors: TCl3Error[] = [];
+
+		// Slightly complicated issue, template-files can be imported multiple times with different type-parameters
+		// These files could result in different errors, but will likely result in duplicate errors for the same file
+		// Need to filter only unique errors based on their location and cause
+
+		// Creates a key for each error, such that the same error generated in the same file will have the same key
+		// NOTE: Cannot use fileIdentifier as each import of a template-file will have a different fileIdentifier, even if the file is the same
+		const errorToKey = (error: TCl3Error, file: TargetFile) =>
+			`${error.constructor.name}-${file.filePath}:${error.location.startIndex}-${error.location.endIndex}:${error.cause.message}`;
+		const handledErrors = new Set<string>();
 		this.files.forEach(file => {
-			errors.push(...file.tokenizerErrors);
-			errors.push(...file.parserErrors);
+			[...file.tokenizerErrors, ...file.parserErrors].forEach(error => {
+				const key = errorToKey(error, file);
+				if (handledErrors.has(key)) return;
+
+				errors.push(error);
+				handledErrors.add(key);
+			});
 		});
 
 		errors.push(...this.linkerErrors);

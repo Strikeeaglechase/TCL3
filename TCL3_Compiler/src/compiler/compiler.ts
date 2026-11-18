@@ -301,6 +301,7 @@ class Compiler {
 	}
 
 	protected compileAst(node: AST) {
+		if (!node) return;
 		try {
 			this.compileAstInner(node);
 		} catch (err) {
@@ -1180,7 +1181,7 @@ class Compiler {
 			this.currentContext.setVarFromRegister(varDecl.name, varDecl.nameToken, Register.r1); // Set the array to point to the allocated memory
 		}
 
-		if (varDecl.initializer.type == ASTType.Initializer) {
+		if (varDecl.initializer?.type == ASTType.Initializer) {
 			varDecl.initializer.values.forEach((initer, index) => {
 				if (initer.type == ASTType.StructFieldInitializer) {
 					this.compileAst(initer.expression);

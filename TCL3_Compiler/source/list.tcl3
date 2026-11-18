@@ -15,6 +15,6 @@ struct %T%List {
 	}
 
 	fn push(value: %T%): void {
-		if (this->)
+		if (this->length) {}
 	}
 }

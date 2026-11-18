@@ -415,7 +415,7 @@ class LSP {
 	private handleCompletionRequest(message: RequestMessage, payload: CompletionParams) {
 		const uri = cleanUri(payload.textDocument.uri);
 		// Use best analyzer for completions as the trigger character likely caused a syntax error in the current analyzer
-		const completions: CompletionItem[] = this.bestAnalyzer.getCompletionsForPosition(uri, payload.position, payload.context?.triggerCharacter);
+		const completions: CompletionItem[] = this.analyzer.getCompletionsForPosition(uri, payload.position, payload.context?.triggerCharacter);
 
 		return completions;
 	}

@@ -274,9 +274,10 @@ class Analyzer {
 	}
 
 	private getPreviousTokenBeforePosition(document: Document, file: TargetFile, position: Position): Token {
-		const positionTokenIndex = this.tokens.findIndex(
-			t => t.fileIdentifier == file.identifier && t.start <= document.positionToIndex(position) && t.end >= document.positionToIndex(position)
-		);
+		const positionTokenIndex = this.tokens.findIndex(t => {
+			// console.log(`Checking token: ${t.value} (${t.start}-${t.end}) against position: ${document.positionToIndex(position)}`);
+			return t.fileIdentifier == file.identifier && t.start < document.positionToIndex(position) && t.end >= document.positionToIndex(position);
+		});
 
 		const token = this.tokens[positionTokenIndex - 1];
 		return token;
@@ -325,7 +326,7 @@ class Analyzer {
 		if (!token) return [];
 
 		const detail = this.compiler.getTokenDetail(token);
-		console.log({ token, detail });
+		console.log({ detail });
 		if (!detail) return [];
 
 		// Static function calls

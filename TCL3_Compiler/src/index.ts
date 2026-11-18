@@ -15,7 +15,8 @@ function linkCompileAndExecute(sourceFilePath: string) {
 	linker.enableDebug("../debug");
 	const astProgram = linker.link();
 	linker.getErrors().forEach(err => {
-		console.log(chalk.redBright(`Linker Error: ${err.message}`));
+		console.log(chalk.redBright(`${err.constructor.name}: ${err.message}`));
+		console.log(err.cause);
 	});
 
 	const compiler = new Compiler(astProgram, throwOnError);
@@ -23,6 +24,7 @@ function linkCompileAndExecute(sourceFilePath: string) {
 	fs.writeFileSync("../debug/ir.txt", IRBuilder.getDebugText(irProgram, false));
 	compiler.errors.forEach(err => {
 		console.log(chalk.redBright(`Compiler Error: ${err.message}`));
+		console.log(err.cause);
 	});
 
 	const optimizer = new IROptimizer(irProgram);

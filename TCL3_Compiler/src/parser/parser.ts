@@ -1,6 +1,6 @@
 import path from "path";
 
-import { ParserError, SourceSpan } from "../errors.js";
+import { CompilerError, ParserError, SourceSpan } from "../errors.js";
 import { TypedObjectStream } from "../stream.js";
 import {
 	AddressOf,
@@ -106,9 +106,14 @@ class Parser {
 		return node;
 	}
 
-	private parseStatement(allowBinaryExpression = true): AST {
+	private parseStatement(allowBinaryExpression = true, allowKeyword = true): AST {
 		const startIndex = this.tokenStream.position;
 		try {
+			if (!allowKeyword && this.tokenStream.peak().type == TokenType.Keyword) {
+				this.handleError(new Error(`Unexpected keyword: ${this.tokenStream.peak().value}`), this.spanFromStartingTokenIndex(startIndex));
+				return;
+			}
+
 			const token = this.tokenStream.next();
 
 			switch (token.type) {
@@ -454,7 +459,7 @@ class Parser {
 		}
 
 		this.tokenStream.consumeTV(TokenType.Symbol, "=");
-		const initializer = this.parseStatement();
+		const initializer = this.parseStatement(true, false);
 
 		const varDecl: VariableDeclaration = {
 			type: ASTType.VariableDeclaration,
@@ -673,62 +678,66 @@ class Parser {
 		// 1. Simple struct field access: `myStruct.field`
 		// 2. Array access: `myArray[5]`
 		// 3. Dereference struct field access: `myStruct->field`
-		while (!this.tokenStream.eof()) {
-			const peaked = this.tokenStream.peak();
-			// SImple concrete struct field access
-			if (peaked.type == TokenType.Symbol && peaked.value == ".") {
-				this.tokenStream.consumeTV(TokenType.Symbol, ".");
-				const fieldIdent = this.tokenStream.consumeType(TokenType.Identifier);
-				const childRef: Reference = {
-					type: ASTType.Reference,
-					identifier: fieldIdent.value,
-					identifierToken: fieldIdent,
-					offsetExpressions: null,
-					child: null,
-					dereferenceCount: 0
-				};
+		try {
+			while (!this.tokenStream.eof()) {
+				const peaked = this.tokenStream.peak();
+				// SImple concrete struct field access
+				if (peaked.type == TokenType.Symbol && peaked.value == ".") {
+					this.tokenStream.consumeTV(TokenType.Symbol, ".");
+					const fieldIdent = this.tokenStream.consumeType(TokenType.Identifier);
+					const childRef: Reference = {
+						type: ASTType.Reference,
+						identifier: fieldIdent.value,
+						identifierToken: fieldIdent,
+						offsetExpressions: null,
+						child: null,
+						dereferenceCount: 0
+					};
 
-				currentRef.child = childRef;
-				currentRef = childRef;
-			}
-			// Array access, just update the current reference's offsetExpression
-			else if (peaked.type == TokenType.Symbol && peaked.value == "[") {
-				this.tokenStream.consumeTV(TokenType.Symbol, "[");
-				const offsetExpr = this.parseStatement(true);
-				this.tokenStream.consumeTV(TokenType.Symbol, "]");
-
-				currentRef.offsetExpressions = [offsetExpr];
-
-				// May be chained array accesses
-				while (!this.tokenStream.eof()) {
-					const nextPeaked = this.tokenStream.peak();
-					if (nextPeaked.type != TokenType.Symbol || nextPeaked.value != "[") break;
+					currentRef.child = childRef;
+					currentRef = childRef;
+				}
+				// Array access, just update the current reference's offsetExpression
+				else if (peaked.type == TokenType.Symbol && peaked.value == "[") {
 					this.tokenStream.consumeTV(TokenType.Symbol, "[");
-					const nextOffsetExpr = this.parseStatement(true);
+					const offsetExpr = this.parseStatement(true);
 					this.tokenStream.consumeTV(TokenType.Symbol, "]");
 
-					currentRef.offsetExpressions.push(nextOffsetExpr);
+					currentRef.offsetExpressions = [offsetExpr];
+
+					// May be chained array accesses
+					while (!this.tokenStream.eof()) {
+						const nextPeaked = this.tokenStream.peak();
+						if (nextPeaked.type != TokenType.Symbol || nextPeaked.value != "[") break;
+						this.tokenStream.consumeTV(TokenType.Symbol, "[");
+						const nextOffsetExpr = this.parseStatement(true);
+						this.tokenStream.consumeTV(TokenType.Symbol, "]");
+
+						currentRef.offsetExpressions.push(nextOffsetExpr);
+					}
+				}
+				// Dereference struct field access
+				else if (peaked.type == TokenType.Symbol && peaked.value == "->") {
+					this.tokenStream.consumeTV(TokenType.Symbol, "->");
+					const fieldIdent = this.tokenStream.consumeType(TokenType.Identifier);
+					const childRef: Reference = {
+						type: ASTType.Reference,
+						identifier: fieldIdent.value,
+						identifierToken: fieldIdent,
+						offsetExpressions: null,
+						child: null,
+						dereferenceCount: 0
+					};
+
+					currentRef.child = childRef;
+					currentRef.dereferenceCount = 1;
+					currentRef = childRef;
+				} else {
+					break;
 				}
 			}
-			// Dereference struct field access
-			else if (peaked.type == TokenType.Symbol && peaked.value == "->") {
-				this.tokenStream.consumeTV(TokenType.Symbol, "->");
-				const fieldIdent = this.tokenStream.consumeType(TokenType.Identifier);
-				const childRef: Reference = {
-					type: ASTType.Reference,
-					identifier: fieldIdent.value,
-					identifierToken: fieldIdent,
-					offsetExpressions: null,
-					child: null,
-					dereferenceCount: 0
-				};
-
-				currentRef.child = childRef;
-				currentRef.dereferenceCount = 1;
-				currentRef = childRef;
-			} else {
-				break;
-			}
+		} catch (e) {
+			this.handleError(e, this.spanFromStartingCharIndex(firstIdentToken.start));
 		}
 
 		topRef.location = this.spanFromStartingCharIndex(firstIdentToken.start);
@@ -789,7 +798,7 @@ class Parser {
 
 	private handleVariableAssignment(ref: Reference) {
 		this.tokenStream.consumeTV(TokenType.Symbol, "=");
-		const expression = this.parseStatement();
+		const expression = this.parseStatement(true, false);
 		const assignment: Assignment = {
 			type: ASTType.VariableAssignment,
 			reference: ref,
@@ -992,7 +1001,6 @@ class Parser {
 	}
 
 	private parseSymbol(symbol: string, allowBinaryExpression: boolean) {
-		const startTokenIndex = this.tokenStream.position - 1; // The symbol token has already been consumed
 		switch (symbol) {
 			case ";":
 				const semi: Semicolon = { type: ASTType.Semicolon };
@@ -1003,18 +1011,6 @@ class Parser {
 				const inner = this.parseStatement(true);
 				this.tokenStream.consumeTV(TokenType.Symbol, ")");
 				return this.maybeStartBinaryExpressionOrBlockedReference(inner, allowBinaryExpression);
-			// case "{":
-			// 	const innerType = this.parseTypeRef();
-			// 	this.tokenStream.consumeTV(TokenType.Symbol, "}");
-			// 	const innerExpr = this.parseStatement();
-			// 	const cast: TypeCast = {
-			// 		type: ASTType.TypeCast,
-			// 		castType: innerType.type,
-			// 		expression: innerExpr,
-			// 		location: this.spanFromStartingTokenIndex(startTokenIndex)
-			// 	};
-
-			// 	return cast;
 			default:
 				// We want to avoid consuming closing symbols, as we want to still parse as much as we can.
 				if (symbol == "}" || symbol == "]" || symbol == ")") {
@@ -1033,6 +1029,16 @@ class Parser {
 		};
 
 		return this.maybeStartBinaryExpressionOrBlockedReference(lit, allowBinaryExpression);
+	}
+
+	private handleError(e: any, span: SourceSpan) {
+		let error = e;
+		if (!(e instanceof ParserError)) {
+			error = new ParserError(e, span);
+		}
+
+		this.parseErrors.push(error);
+		if (this.throwOnError) throw error;
 	}
 }
 
