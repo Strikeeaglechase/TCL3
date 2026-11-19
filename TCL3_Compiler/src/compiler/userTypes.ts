@@ -57,7 +57,14 @@ class Struct implements IType {
 
 	public buildMethods() {
 		this.definition.methods.forEach(method => {
-			const funcCtx = this.compiler.handleFunctionDeclaration(method);
+			let funcCtx: FunctionContext;
+			try {
+				funcCtx = this.compiler.handleFunctionDeclaration(method);
+			} catch (e) {
+				this.compiler.handleError(e, method.location);
+				return;
+			}
+
 			funcCtx.methodForStruct = this;
 
 			if (!this.methods.has(method.name)) this.methods.set(method.name, []);

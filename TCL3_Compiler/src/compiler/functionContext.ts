@@ -75,9 +75,9 @@ class FunctionContext implements IType {
 		});
 
 		if (returns.length == 0) {
-			if (this.definition.returnType.type != ASTType.RawTypeRef || this.definition.returnType.rawType != "void") {
+			if (this.definition.returnType?.type != ASTType.RawTypeRef || this.definition.returnType?.rawType != "void") {
 				throw new Error(
-					`Function '${this.nameToken.value}' has no return statements, but has a declared return type of '${typeToStr(this.definition.returnType)}'.`
+					`Function '${this.nameToken.value}' has no return statements, but has a declared return type of '${typeToStr(this.definition?.returnType)}'.`
 				);
 			}
 
@@ -472,7 +472,7 @@ class FunctionContext implements IType {
 			.filter(v => v != null)
 			.join(", ");
 
-		const returnType = this.type.returnType ? typeToStr(this.type.returnType) : "(unknown)";
+		const returnType = this.type?.returnType ? typeToStr(this.type.returnType) : "(unknown)";
 		return `${header}${this.nameToken.value}(${paramList}): ${returnType}`;
 	}
 }

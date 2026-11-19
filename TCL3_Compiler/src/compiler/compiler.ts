@@ -1,4 +1,4 @@
-import { CompilerError } from "../errors.js";
+import { CompilerError, SourceSpan } from "../errors.js";
 import { IRArgument, Register } from "../ir/ir.js";
 import { imm, INT_SIZE, IRBuilder, label, memReg, reg, str, ThreeArgInstructions } from "../ir/irBuilder.js";
 import {
@@ -300,7 +300,7 @@ class Compiler {
 		}
 	}
 
-	protected compileAst(node: AST) {
+	protected async compileAst(node: AST) {
 		if (!node) return;
 		try {
 			this.compileAstInner(node);
@@ -1281,7 +1281,13 @@ class Compiler {
 	}
 
 	private handleTopLevelFunctionDeclaration(node: FunctionDeclaration) {
-		const funcCtx = this.handleFunctionDeclaration(node);
+		let funcCtx: FunctionContext;
+		try {
+			funcCtx = this.handleFunctionDeclaration(node);
+		} catch (e) {
+			this.handleError(e, node.location);
+			return null;
+		}
 
 		if (!this.functions.has(node.name)) this.functions.set(node.name, []);
 		const existingTypeSig = this.functions.get(node.name).find(f => this.areTypesEqual(f.typeRef, funcCtx.typeRef, true));
@@ -1750,6 +1756,16 @@ class Compiler {
 
 		if (returnSize == 1) this.builder.push(reg(Register.funcRet));
 		else if (returnSize > 1) this.currentContext.readVarToStack(returnVarName, null);
+	}
+
+	public handleError(e: any, span: SourceSpan) {
+		let error = e;
+		if (!(e instanceof CompilerError)) {
+			error = new CompilerError(e, span);
+		}
+
+		this.errors.push(error);
+		if (this.throwOnError) throw error;
 	}
 }
 

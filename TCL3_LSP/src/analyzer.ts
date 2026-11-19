@@ -326,7 +326,6 @@ class Analyzer {
 		if (!token) return [];
 
 		const detail = this.compiler.getTokenDetail(token);
-		console.log({ detail });
 		if (!detail) return [];
 
 		// Static function calls
@@ -366,12 +365,30 @@ class Analyzer {
 			let type = detail.typeRef;
 			if (type.type == ASTType.WrappedTypeRef && triggerCharacter == ">") {
 				type = type.inner;
-				console.log(`Unwrap to: `, type);
+				// console.log(`Unwrap to: `, type);
 			}
 
-			if (type.type != ASTType.RawTypeRef) return [];
+			if (type.type != ASTType.RawTypeRef) {
+				return [];
+			}
 
 			const struct = this.compiler.structs.get(type.rawType);
+			if (!struct) {
+				const allSymbols = this.getDetailsOfSymbolsAvailableAt(document, file, position);
+				if (!allSymbols) return [];
+
+				const completionItems: CompletionItem[] = allSymbols.map(symbol => {
+					if (!symbol) return null;
+					return {
+						label: symbol.nameToken.value,
+						detail: symbol.getHoverDetail(),
+						kind: symbol instanceof FunctionContext ? CompletionItemKind.Function : CompletionItemKind.Variable
+					};
+				});
+
+				return completionItems;
+			}
+
 			const completions: CompletionItem[] = [];
 			struct.fields.forEach((field, name) => {
 				completions.push({
@@ -742,6 +759,7 @@ class Analyzer {
 		const fnDetail = this.compiler.getTokenDetail(fnDecl.nameToken);
 		if (!fnDetail || !(fnDetail instanceof FunctionContext)) return null;
 
+		if (!fnDetail.typeRef) return null;
 		return {
 			position: document.indexToPosition(fnDetail.definition.closeParenToken.end),
 			label: `: ${typeToStr(fnDetail.typeRef.returnType)}`,

@@ -51,6 +51,8 @@ class Parser {
 	private enumRawNames: Set<string> = new Set();
 	public parseErrors: ParserError[] = [];
 
+	private incorrectCloseCount = 0;
+
 	constructor(
 		tokens: Token[],
 		private publicSymbols: string[],
@@ -304,6 +306,7 @@ class Parser {
 			if (peaked.type == TokenType.Keyword && peaked.value == "fn") {
 				this.tokenStream.consumeTV(TokenType.Keyword, "fn");
 				const func = this.handleFunctionDeclaration(true, null);
+				if (!func) break;
 				// Add this parameter
 				func.parameters.unshift({
 					name: "this",
@@ -1006,15 +1009,19 @@ class Parser {
 				const semi: Semicolon = { type: ASTType.Semicolon };
 				return semi;
 			case "{":
+				this.incorrectCloseCount = 0;
 				return this.parseInitializer();
 			case "(":
+				this.incorrectCloseCount = 0;
 				const inner = this.parseStatement(true);
 				this.tokenStream.consumeTV(TokenType.Symbol, ")");
 				return this.maybeStartBinaryExpressionOrBlockedReference(inner, allowBinaryExpression);
 			default:
 				// We want to avoid consuming closing symbols, as we want to still parse as much as we can.
 				if (symbol == "}" || symbol == "]" || symbol == ")") {
-					this.tokenStream.stepBack();
+					this.incorrectCloseCount++;
+					// Only step back if we're not stuck looping on the same closing symbol
+					if (this.incorrectCloseCount < 3) this.tokenStream.stepBack();
 				}
 				throw new Error(`Unexpected symbol: ${symbol}`);
 		}

@@ -18,6 +18,7 @@ const isPrimitiveTypeName = (type: string): type is PrimitiveTypeName => {
 // generateExactTypeText guarantees that the returned type string is valid TLC3 syntax to generate the type
 // Otherwise the function is allowed to generate human readable type strings
 function typeToStr(type: ASTTypeRef, generateExactTypeText = false): string {
+	if (!type) return `(unknown)`;
 	let result = "";
 	let current = type;
 	let pendingStars = "";

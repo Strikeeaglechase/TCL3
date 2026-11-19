@@ -15,6 +15,12 @@ struct %T%List {
 	}
 
 	fn push(value: %T%): void {
-		if (this->length) {}
+		if (this->length > this->capacity) {
+			this->resize();
+		}
+	}
+
+	fn resize(): void {
+		
 	}
 }
