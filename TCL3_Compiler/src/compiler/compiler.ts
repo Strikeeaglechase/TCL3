@@ -195,6 +195,12 @@ class Compiler {
 		return this.builder.getCode();
 	}
 
+	private forwardDeclareFunctionSignatures() {
+		this.program.body.forEach(node => {
+			if (node.type != ASTType.FunctionDeclaration) return;
+		});
+	}
+
 	public resolveTypeSize(type: ASTTypeRef) {
 		if (type.type === ASTType.WrappedTypeRef || type.type == ASTType.FunctionTypeRef) return INT_SIZE;
 
@@ -300,7 +306,7 @@ class Compiler {
 		}
 	}
 
-	protected async compileAst(node: AST) {
+	protected compileAst(node: AST) {
 		if (!node) return;
 		try {
 			this.compileAstInner(node);

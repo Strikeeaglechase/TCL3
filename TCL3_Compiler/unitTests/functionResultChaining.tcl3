@@ -18,7 +18,7 @@ fn makePair(left: int, right: int): Pair {
 
 fn add(left: int, right: int): int left + right;
 
-fn inferred(value: int) value + 1;
+fn inferred(value: int): int value + 1;
 
 fn main(): void {
 	out makePair(8, 13).right;

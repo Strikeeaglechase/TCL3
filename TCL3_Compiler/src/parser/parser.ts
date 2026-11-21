@@ -414,10 +414,8 @@ class Parser {
 			}
 
 			const { parameters, closeParenToken } = this.parseParenthesizedParameterList();
-			let returnType: ASTTypeRef = null;
-			if (this.tokenStream.maybeConsumeTV(TokenType.Symbol, ":")) {
-				returnType = this.parseTypeRef().type;
-			}
+			this.tokenStream.consumeTV(TokenType.Symbol, ":");
+			const returnType = this.parseTypeRef().type;
 
 			let { body, bracketed, endIndex } = this.parseOptionallyBracketedBlock();
 
