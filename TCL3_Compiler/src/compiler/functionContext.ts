@@ -250,6 +250,7 @@ class FunctionContext implements IType {
 		//     fp ^                       sp ^
 		// NOTE: If we want to then copy the struct off the stack via popping, we need to understand that
 		//       the struct will be in reverse order
+		this.builder.comment(`Read local variable '${name}' (${typeToStr(local.type)}) at ${local.stackOffset} (size ${local.size}) to stack`);
 		if (readSize >= INT_SIZE) {
 			for (let i = 0; i < readSize / INT_SIZE; i++) {
 				// this.builder.add(reg(Register.fp), imm(local.stackOffset + i + offset), reg(Register.offset));
@@ -316,6 +317,9 @@ class FunctionContext implements IType {
 
 		const local = this.locals.get(name);
 		let currentType = local.type;
+		this.builder.comment(
+			`Use local variable '${name}' (${typeToStr(local.type)}) at ${local.stackOffset} (size ${local.size}) as pointer and set from stack with dereference count ${dereferenceCount}`
+		);
 
 		// Only do initial dereference if we have more than one dereference
 		// We want to leave a pointer in r0 to write to, not the value itself
@@ -343,7 +347,7 @@ class FunctionContext implements IType {
 
 		if (innerSize >= INT_SIZE) {
 			for (let i = innerSize / INT_SIZE - 1; i >= 0; i--) {
-				this.builder.add(memReg(Register.r0, PTR_SIZE), imm(offset + i), reg(Register.r1));
+				this.builder.add(memReg(Register.r0, PTR_SIZE), imm(offset + i * INT_SIZE), reg(Register.r1));
 				this.builder.pop(memReg(Register.r1, INT_SIZE));
 			}
 		} else {
@@ -378,8 +382,8 @@ class FunctionContext implements IType {
 		const innerSize = this.compiler.resolveTypeSize(currentType);
 
 		if (innerSize >= INT_SIZE) {
-			for (let i = 0; i < innerSize; i++) {
-				this.builder.add(reg(Register.r0), imm(i), reg(Register.r1));
+			for (let i = 0; i < innerSize / INT_SIZE; i++) {
+				this.builder.add(reg(Register.r0), imm(i * INT_SIZE), reg(Register.r1));
 				this.builder.push(memReg(Register.r1, INT_SIZE));
 			}
 		} else {

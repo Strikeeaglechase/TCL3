@@ -285,7 +285,7 @@ class Emulator {
 		});
 
 		console.log(registerOutput);
-		const snapshotSize = 32;
+		const snapshotSize = 64;
 		const table: string[][] = [];
 		table.push([`Addresses:`]);
 		table.push([`Memory:`]);

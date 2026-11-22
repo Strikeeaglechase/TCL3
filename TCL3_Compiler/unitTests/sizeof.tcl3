@@ -1,10 +1,10 @@
+// EXPECT: 16
+// EXPECT: 16
+// EXPECT: 4
+// EXPECT: 1
+// EXPECT: 1
 // EXPECT: 4
 // EXPECT: 4
-// EXPECT: 1
-// EXPECT: 1
-// EXPECT: 1
-// EXPECT: 1
-// EXPECT: 1
 // EXPECT: 0
 
 struct SubStruct {

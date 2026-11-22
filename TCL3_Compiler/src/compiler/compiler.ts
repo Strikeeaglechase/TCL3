@@ -628,8 +628,11 @@ class Compiler {
 					this.builder.push(reg(Register.r0));
 					this.builder.comment(`Offset expression for index into '${curRef.identifier}'`);
 					this.compileAst(offsetExpr);
+					this.builder.comment(`Pop result of offset expression`);
 					this.builder.pop(reg(Register.r1)); // Result of the offset expression
+					this.builder.comment(`Multiply by size of type '${typeToStr(currentType)}'`);
 					this.builder.mul(reg(Register.r1), imm(this.resolveTypeSize(currentType)), reg(Register.r1)); // Multiply by size of the type
+					this.builder.comment(`Load pointer back into r0, add the offset`);
 					this.builder.pop(reg(Register.r0)); // Restore r0 to the current pointer
 					this.builder.add(reg(Register.r0), reg(Register.r1), reg(Register.r0)); // Add the offset to the pointer
 				});
@@ -712,6 +715,8 @@ class Compiler {
 			for (let i = 0; i < finalTypeSize / INT_SIZE; i++) {
 				this.builder.push(memReg(Register.r0, INT_SIZE, i * INT_SIZE));
 			}
+		} else {
+			this.builder.push(memReg(Register.r0, finalTypeSize));
 		}
 	}
 
@@ -1269,6 +1274,11 @@ class Compiler {
 				outType = "BOOL";
 				break;
 			default:
+				const enumDecl = this.enums.get(type.rawType);
+				if (enumDecl) {
+					outType = "INT"; // Enums are effectively ints
+					break;
+				}
 				throw new Error(`Out statement only supports int, char, float, and bool types, got ${type.rawType}`);
 		}
 

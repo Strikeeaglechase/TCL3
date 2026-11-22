@@ -57,5 +57,5 @@ function executeIrFile(irFilePath: string) {
 // const artifacts = Linker.build("../source/tcl3Config.json");
 // console.log(artifacts);
 
-// linkCompileAndExecute("../source/funcTest.tcl3");
-executeIrFile("../debug/ir.txt");
+linkCompileAndExecute("../source/funcTest.tcl3");
+// executeIrFile("../debug/ir.txt");

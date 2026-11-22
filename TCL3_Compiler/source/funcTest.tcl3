@@ -1,11 +1,9 @@
-// EXPECT: Hello, World!
-// EXPECT: This works!
-// EXPECT: 65
-
-
 fn main(): void {
-	let str: char* = "Hello, World!";
+	let letter: char = 'A';
 
-	let idx: int = 0;
-	out str[idx];
+	let letterPointer: char* = &letter;
+	out *letterPointer;
+	let integerPointer: int* = <int*>letterPointer;
+	out *integerPointer;
+
 }
