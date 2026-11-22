@@ -1,6 +1,54 @@
 import { IRArgument, IRCodeLine, IRLabelLine, IROpCode, IRProgram, Register } from "./ir/ir.js";
+import { INT_SIZE } from "./ir/irBuilder.js";
 
 const memSize = 1024 * 64; // 64KB
+
+const floatAddresses = new Set<number>();
+function write(mem: number[], address: number, value: number, size: number) {
+	// What im about to do im not proud of, but this is javascripts fault
+	// in a proper language id just get to write the nice raw bits, call it good
+	// but because js, I have to guess if its an int or a float
+
+	if (size === 4 && !Number.isInteger(value)) {
+		const floatArray = new Float32Array(1);
+		floatArray[0] = value;
+		const intArray = new Uint8Array(floatArray.buffer);
+
+		for (let i = 0; i < size; i++) {
+			mem[address + i] = intArray[i];
+		}
+
+		floatAddresses.add(address);
+
+		return;
+	}
+
+	floatAddresses.delete(address);
+
+	for (let i = 0; i < size; i++) {
+		const byte = (value >> (i * 8)) & 0xff;
+		mem[address + i] = byte;
+	}
+}
+
+function read(mem: number[], address: number, size: number): number {
+	if (floatAddresses.has(address) && size == 4) {
+		const intArray = new Uint8Array(size);
+		for (let i = 0; i < size; i++) {
+			intArray[i] = mem[address + i];
+		}
+
+		const floatArray = new Float32Array(intArray.buffer);
+		return floatArray[0];
+	}
+
+	let value = 0;
+	for (let i = 0; i < size; i++) {
+		value |= (mem[address + i] & 0xff) << (i * 8);
+	}
+
+	return value;
+}
 
 class Emulator {
 	private registers: Record<Register, number> = {
@@ -18,6 +66,8 @@ class Emulator {
 	private ticks = 0;
 	private stringLut: Map<number, number> = new Map(); // Maps string index to memory address
 	private labelIndexes: Map<string, number> = new Map(); // Maps label names to program index
+
+	private lineBuffer = "";
 
 	private outputs: number[] = [];
 
@@ -51,6 +101,7 @@ class Emulator {
 	public execute() {
 		while (this.running) {
 			const line = this.program.code[this.registers.pc];
+			if (!line) throw new Error(`Program counter out of bounds: ${this.registers.pc}`);
 
 			if (line instanceof IRCodeLine) {
 				this.executeInstruction(line.opcode, line.args);
@@ -58,6 +109,8 @@ class Emulator {
 			}
 
 			this.registers.pc += 1;
+
+			if (this.ticks > 1e6) throw new Error("Execution exceeded 1 million ticks, possible infinite loop.");
 		}
 
 		if (!this.silent) console.log(`Execution finished after ${this.ticks} ticks.`);
@@ -76,13 +129,15 @@ class Emulator {
 				break;
 
 			case "PUSH":
-				this.memory[this.registers.sp] = this.getValue(args[0]);
-				this.registers.sp += 1;
+				write(this.memory, this.registers.sp, this.getValue(args[0]), INT_SIZE);
+				// this.memory[this.registers.sp] = this.getValue(args[0]);
+				this.registers.sp += INT_SIZE;
 				break;
 
 			case "POP":
-				this.registers.sp -= 1;
-				this.setValue(args[0], this.memory[this.registers.sp]);
+				this.registers.sp -= INT_SIZE;
+				// this.setValue(args[0], this.memory[this.registers.sp]);
+				this.setValue(args[0], read(this.memory, this.registers.sp, INT_SIZE));
 				break;
 
 			case "ADD":
@@ -190,10 +245,28 @@ class Emulator {
 				this.running = false;
 				break;
 
-			case "OUT":
+			case "OUT_INT":
 				const value = this.getValue(args[0]);
 				if (!this.silent) console.log(`OUT: ${value}`);
 				this.outputs.push(value);
+				break;
+
+			case "OUT_CHAR":
+				const charCode = this.getValue(args[0]);
+				if (!this.silent) console.log(`OUT: ${String.fromCharCode(charCode)}`);
+				this.outputs.push(charCode);
+				break;
+
+			case "OUT_BOOL":
+				const boolValue = this.getValue(args[0]);
+				if (!this.silent) console.log(`OUT: ${boolValue ? "true" : "false"}`);
+				this.outputs.push(boolValue);
+				break;
+
+			case "OUT_FLOAT":
+				const floatValue = this.getValue(args[0]);
+				if (!this.silent) console.log(`OUT: ${floatValue.toFixed(4)}`);
+				this.outputs.push(floatValue);
 				break;
 
 			case "INSPECT":
@@ -240,13 +313,13 @@ class Emulator {
 
 	private setValue(arg: IRArgument, value: number) {
 		switch (arg.type) {
-			case "MEM":
-				this.memory[parseInt(arg.value)] = value;
-				break;
+			// case "MEM":
+			// 	this.memory[parseInt(arg.value)] = value;
+			// 	break;
 			case "MEM_REG":
 				if (!(arg.value in this.registers)) throw new Error(`Invalid register: ${arg.value}`);
 				const addr = this.registers[arg.value as Register] + (arg.offset || 0);
-				this.memory[addr] = value;
+				write(this.memory, addr, value, arg.size);
 				break;
 			case "REG":
 				if (!(arg.value in this.registers)) throw new Error(`Invalid register: ${arg.value}`);
@@ -260,18 +333,18 @@ class Emulator {
 	private getValue(arg: IRArgument): number {
 		switch (arg.type) {
 			case "IMM":
-				return parseInt(arg.value);
+				return parseFloat(arg.value);
 			case "REG":
 				if (!(arg.value in this.registers)) throw new Error(`Invalid register: ${arg.value}`);
 				return this.registers[arg.value as Register];
-			case "MEM":
-				const val = this.memory[parseInt(arg.value)];
-				if (typeof val != "number") throw new Error(`Invalid memory access at address ${arg.value}: ${val}`);
-				return val;
+			// case "MEM":
+			// 	const val = this.memory[parseInt(arg.value)];
+			// 	if (typeof val != "number") throw new Error(`Invalid memory access at address ${arg.value}: ${val}`);
+			// 	return val;
 			case "MEM_REG":
 				if (!(arg.value in this.registers)) throw new Error(`Invalid register: ${arg.value}`);
 				const addr = this.registers[arg.value as Register] + (arg.offset || 0);
-				const memVal = this.memory[addr];
+				const memVal = read(this.memory, addr, arg.size);
 				if (typeof memVal != "number") throw new Error(`Invalid memory access at address ${addr}: ${memVal}`);
 				return memVal;
 			case "LABEL":

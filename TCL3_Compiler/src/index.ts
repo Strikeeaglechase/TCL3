@@ -4,12 +4,12 @@ import fs from "fs";
 import { Compiler } from "./compiler/compiler.js";
 import { Emulator } from "./emulator.js";
 import { IRBuilder } from "./ir/irBuilder.js";
-import { loadIrFromFile } from "./ir/irLoader.js";
+import { compareIrPrograms, loadIrFromFile } from "./ir/irLoader.js";
 import { IROptimizer } from "./ir/irOptimizer.js";
 import { Linker } from "./linker/linker.js";
 import { UnitTester } from "./unitTests.js";
 
-const throwOnError = false;
+const throwOnError = true;
 function linkCompileAndExecute(sourceFilePath: string) {
 	const linker = new Linker(sourceFilePath, { throwOnError: throwOnError });
 	linker.enableDebug("../debug");
@@ -38,6 +38,10 @@ function linkCompileAndExecute(sourceFilePath: string) {
 
 	console.log(`Unoptimized ticks ${unoptResult.ticks}, Optimized ticks: ${opResult.ticks}`);
 
+	// Test the IR loader to ensure it's able to re-create the IR program from a text file
+	const loaderIr = loadIrFromFile(fs.readFileSync("../debug/ir.txt", "utf-8"));
+	compareIrPrograms(irProgram, loaderIr);
+
 	const unitTester = new UnitTester();
 	// unitTester.runTests();
 }
@@ -52,5 +56,6 @@ function executeIrFile(irFilePath: string) {
 
 // const artifacts = Linker.build("../source/tcl3Config.json");
 // console.log(artifacts);
-linkCompileAndExecute("../source/funcTest.tcl3");
-// executeIrFile("../debug/ir.txt");
+
+// linkCompileAndExecute("../source/funcTest.tcl3");
+executeIrFile("../debug/ir.txt");

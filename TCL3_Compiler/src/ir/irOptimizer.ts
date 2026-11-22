@@ -49,7 +49,7 @@ class IROptimizer {
 	}
 
 	private checkModifies(line: IRCodeLine, arg: IRArgument): boolean {
-		const nonModifyingOpcodes: IROpCode[] = ["NOP", "PUSH", "JMP_IF_FALSE", "JMP_IF_TRUE", "HALT", "OUT"];
+		const nonModifyingOpcodes: IROpCode[] = ["NOP", "PUSH", "JMP_IF_FALSE", "JMP_IF_TRUE", "HALT", "OUT_BOOL", "OUT_INT", "OUT_FLOAT", "OUT_CHAR"];
 		if (nonModifyingOpcodes.includes(line.opcode)) return false;
 
 		const lastArg = line.args[line.args.length - 1];

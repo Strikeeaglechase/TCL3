@@ -1,6 +1,7 @@
 import path from "path";
 
-import { CompilerError, ParserError, SourceSpan } from "../errors.js";
+import { isPrimitiveTypeName } from "../compiler/types.js";
+import { ParserError, SourceSpan } from "../errors.js";
 import { TypedObjectStream } from "../stream.js";
 import {
 	AddressOf,
@@ -38,7 +39,6 @@ import {
 import { mainFnName, operandPrecedence, selfAssignMathOps, Token, TokenType } from "./tokenizer.js";
 
 const allowedOperatorOverloads = ["+", "-", "*", "/", "[]", "==", "!=", "<", ">", "<=", ">=", "&&", "||", "&", "|", "^", "<<", ">>"];
-const builtinTypes = ["int", "char", "bool", "void"];
 let id = 0;
 const pushIfDef = <T>(arr: T[], value: T) => {
 	if (value != undefined) arr.push(value);
@@ -567,7 +567,7 @@ class Parser {
 		if (name == mainFnName) return name; // Don't rewrite main function
 		if (this.rewrittenNames.has(name)) return this.rewrittenNames.get(name);
 		if (name.startsWith("__")) return name;
-		if (builtinTypes.includes(name)) return name;
+		if (isPrimitiveTypeName(name)) return name;
 
 		if (!createIfNeeded) return name;
 

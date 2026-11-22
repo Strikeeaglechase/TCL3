@@ -1,8 +1,11 @@
-#include "./list.tcl3" <int>
-#include "./list.tcl3" <bool>
+// EXPECT: Hello, World!
+// EXPECT: This works!
+// EXPECT: 65
 
 
 fn main(): void {
-	let iList = intList.new(5);
-	let bList = boolList.new(5);
+	let str: char* = "Hello, World!";
+
+	let idx: int = 0;
+	out str[idx];
 }

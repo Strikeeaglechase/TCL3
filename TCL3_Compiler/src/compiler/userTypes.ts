@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
 
+import { INT_SIZE } from "../ir/irBuilder.js";
 import { ASTType, ASTTypeRef, EnumDeclaration, RawTypeRef, StructDeclaration } from "../parser/ast.js";
 import { Token } from "../parser/tokenizer.js";
 import { Compiler } from "./compiler.js";
@@ -49,6 +50,8 @@ class Struct implements IType {
 			this.fields.set(field.name, structField);
 			this.size += size;
 		});
+
+		while (this.size % INT_SIZE != 0) this.size++; // Alignment
 	}
 
 	public get typeRef(): RawTypeRef {

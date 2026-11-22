@@ -1,6 +1,6 @@
 import { CompilerError, SourceSpan } from "../errors.js";
 import { IRArgument, Register } from "../ir/ir.js";
-import { imm, INT_SIZE, IRBuilder, label, memReg, reg, str, ThreeArgInstructions } from "../ir/irBuilder.js";
+import { imm, INT_SIZE, IRBuilder, label, memReg, PTR_SIZE, reg, str, ThreeArgInstructions } from "../ir/irBuilder.js";
 import {
 	Assignment,
 	AST,
@@ -215,20 +215,13 @@ class Compiler {
 			return INT_SIZE; // Enums are represented as integers
 		}
 
-		try {
-			throw new Error(`Type is not defined: ${type.rawTypeToken.value}`);
-		} catch (err) {
-			const compilerError = new CompilerError(err, {
-				startIndex: type.rawTypeToken.start,
-				endIndex: type.rawTypeToken.end,
-				fileIdentifier: type.rawTypeToken.fileIdentifier
-			});
-			if (this.throwOnError) throw compilerError;
+		this.handleError(new Error(`Type is not defined: ${type.rawTypeToken.value}`), {
+			startIndex: type.rawTypeToken.start,
+			endIndex: type.rawTypeToken.end,
+			fileIdentifier: type.rawTypeToken.fileIdentifier
+		});
 
-			this.errors.push(compilerError);
-
-			return 0;
-		}
+		return 0;
 	}
 
 	private compileAstInner(node: AST) {
@@ -338,14 +331,18 @@ class Compiler {
 			if (currentType.type != ASTType.WrappedTypeRef) throw new Error(`Cannot dereference non-pointer type '${typeToStr(currentType)}'.`);
 
 			this.builder.comment(`Dereference level ${i + 1}`);
-			this.builder.move(memReg(Register.r0), reg(Register.r0)); // Dereference r0 to get the pointer to the next level
+			this.builder.move(memReg(Register.r0, PTR_SIZE), reg(Register.r0)); // Dereference r0 to get the pointer to the next level
 			currentType = currentType.inner;
 		}
 
 		if (currentType.type != ASTType.WrappedTypeRef) throw new Error(`Cannot dereference non-pointer type '${typeToStr(currentType)}'.`);
 		const finalTypeSize = this.resolveTypeSize(currentType.inner);
-		for (let i = 0; i < finalTypeSize; i++) {
-			this.builder.push(memReg(Register.r0, i));
+		if (finalTypeSize >= INT_SIZE) {
+			for (let i = 0; i < finalTypeSize / INT_SIZE; i++) {
+				this.builder.push(memReg(Register.r0, INT_SIZE, i * INT_SIZE));
+			}
+		} else {
+			this.builder.push(memReg(Register.r0, finalTypeSize));
 		}
 	}
 
@@ -485,9 +482,13 @@ class Compiler {
 
 		this.builder.comment(`Copy ${finalTypeSize} cells from stack to address in r0 for assignment to ${referenceToString(ref)}`);
 		// Copy off stack into where r0 points to
-		for (let i = 0; i < finalTypeSize; i++) {
-			const stackOffset = -finalTypeSize + i; // Reverse order to pop off stack
-			this.builder.move(memReg(Register.sp, stackOffset), memReg(Register.r0, i));
+		if (finalTypeSize >= INT_SIZE) {
+			for (let i = 0; i < finalTypeSize / INT_SIZE; i++) {
+				const stackOffset = -finalTypeSize + i * INT_SIZE; // Reverse order to pop off stack
+				this.builder.move(memReg(Register.sp, INT_SIZE, stackOffset), memReg(Register.r0, INT_SIZE, i * INT_SIZE));
+			}
+		} else {
+			this.builder.move(memReg(Register.sp, finalTypeSize, -finalTypeSize), memReg(Register.r0, finalTypeSize));
 		}
 
 		// Adjust stack pointer to remove the values we just popped off
@@ -621,7 +622,7 @@ class Compiler {
 
 					// Perform dereference
 					this.builder.comment(`Deref for array`);
-					this.builder.move(memReg(Register.r0), reg(Register.r0));
+					this.builder.move(memReg(Register.r0, PTR_SIZE), reg(Register.r0));
 					currentType = currentType.inner;
 
 					this.builder.push(reg(Register.r0));
@@ -642,7 +643,7 @@ class Compiler {
 					throw new Error(`Attempt to dereference a non-pointer type '${typeToStr(currentType)}' for reference '${curRef.identifierToken.value}'.`);
 
 				this.builder.comment(`Deref for child ${curRef.identifier}`);
-				this.builder.move(memReg(Register.r0), reg(Register.r0)); // Dereference r0 to get the pointer to the next level
+				this.builder.move(memReg(Register.r0, PTR_SIZE), reg(Register.r0)); // Dereference r0 to get the pointer to the next level
 				currentType = currentType.inner;
 			}
 
@@ -707,8 +708,10 @@ class Compiler {
 
 		const finalTypeSize = this.resolveTypeSize(resolveType);
 		this.builder.comment(`Reference resolved, push ${finalTypeSize} cells`);
-		for (let i = 0; i < finalTypeSize; i++) {
-			this.builder.push(memReg(Register.r0, i));
+		if (finalTypeSize >= INT_SIZE) {
+			for (let i = 0; i < finalTypeSize / INT_SIZE; i++) {
+				this.builder.push(memReg(Register.r0, INT_SIZE, i * INT_SIZE));
+			}
 		}
 	}
 
@@ -902,7 +905,7 @@ class Compiler {
 			case TokenType.LiteralNumber:
 			case TokenType.LiteralBool:
 			case TokenType.LiteralChar:
-				this.builder.push(imm(parseInt(node.value)));
+				this.builder.push(imm(parseFloat(node.value)));
 				break;
 			case TokenType.LiteralString:
 				const innerStrValue = node.value; // Remove quotes
@@ -1193,8 +1196,8 @@ class Compiler {
 					this.compileAst(initer.expression);
 					this.builder.pop(reg(Register.r0));
 					if (type.type != ASTType.RawTypeRef) throw new Error(`Struct field initializer is only supported for raw type references.`);
-					const offset = this.getOffsetOfSimpleStructField(type, initer.name, initer.nameToken);
-					this.currentContext.setVarFromRegister(varDecl.name, varDecl.nameToken, Register.r0, offset);
+					const { offset, size } = this.getOffsetAndSizeOfSimpleStructField(type, initer.name, initer.nameToken);
+					this.currentContext.setVarFromRegister(varDecl.name, varDecl.nameToken, Register.r0, offset, size);
 				} else {
 					if (type.type != ASTType.WrappedTypeRef) throw new Error(`Array initializer provided for non-pointer type '${typeToStr(type)}'.`);
 					if (!varDecl.arraySizeExpression)
@@ -1226,17 +1229,18 @@ class Compiler {
 		}
 	}
 
-	private getOffsetOfSimpleStructField(structType: RawTypeRef, fieldName: string, fieldToken: Token): number {
+	private getOffsetAndSizeOfSimpleStructField(structType: RawTypeRef, fieldName: string, fieldToken: Token) {
 		const struct = this.structs.get(structType.rawType);
 		if (!struct) throw new Error(`Struct type '${structType.rawTypeToken.value}' is not defined.`);
 		const field = struct.fields.get(fieldName);
 		if (!field) throw new Error(`Struct type '${structType.rawTypeToken.value}' does not have a field named '${fieldToken.value}'.`);
 
 		const fieldSize = this.resolveTypeSize(field.type);
-		if (fieldSize > 1)
+		// TODO: Modify support for size to copy
+		if (fieldSize > INT_SIZE)
 			throw new Error(`Struct field '${fieldToken.value}' of struct type '${structType.rawTypeToken.value}' is not a simple type, cannot get offset.`);
 
-		return field.offset;
+		return { offset: field.offset, size: fieldSize };
 	}
 
 	private handleReturnStatement(node: ReturnStatement) {
@@ -1248,11 +1252,29 @@ class Compiler {
 	private handleOutStatement(node: OutStatement) {
 		this.builder.comment(`Out statement`);
 		const type = this.inferTypeFrom(node.expression);
-		if (this.resolveTypeSize(type) != 1) throw new Error(`Out statement only supports single cell types, got ${typeToStr(type)}`);
+		if (type.type != ASTType.RawTypeRef) throw new Error(`Out statement only supports raw types, got ${typeToStr(type)}`);
+
+		let outType: "INT" | "CHAR" | "FLOAT" | "BOOL";
+		switch (type.rawType) {
+			case "int":
+				outType = "INT";
+				break;
+			case "char":
+				outType = "CHAR";
+				break;
+			case "float":
+				outType = "FLOAT";
+				break;
+			case "bool":
+				outType = "BOOL";
+				break;
+			default:
+				throw new Error(`Out statement only supports int, char, float, and bool types, got ${type.rawType}`);
+		}
 
 		this.compileAst(node.expression);
 		this.builder.pop(reg(Register.r0));
-		this.builder.out(reg(Register.r0));
+		this.builder.out(reg(Register.r0), outType);
 	}
 
 	public areTypesEqual(typeA: ASTTypeRef, typeB: ASTTypeRef, ignoreFnReturnType = false): boolean {
@@ -1368,7 +1390,7 @@ class Compiler {
 		// retAddr = fp (base) - argSize (arguments) - 1 (returnPc) - 1 (returnFp)
 
 		// Points to the location of the next argument
-		let argStackOffset = -argSize - 2;
+		let argStackOffset = -argSize - INT_SIZE * 2;
 
 		funcCtx.setupTypeInformation();
 
@@ -1376,8 +1398,9 @@ class Compiler {
 		const returnSize = this.resolveTypeSize(funcCtx.typeRef.returnType);
 
 		// There will be a return address as the first argument
-		if (returnSize > 1) {
-			funcCtx.defineArgumentVariable(returnPointerName, null, ptrOf(funcCtx.typeRef.returnType), argStackOffset - 1);
+		if (returnSize > INT_SIZE) {
+			funcCtx.defineArgumentVariable(returnPointerName, null, ptrOf(funcCtx.typeRef.returnType), argStackOffset - INT_SIZE);
+			// funcCtx.defineArgumentVariable(returnPointerName, null, ptrOf(funcCtx.typeRef.returnType), argStackOffset - 1);
 		}
 
 		// this.builder.commentln(`Arg setup fn "${node.name}":`);
@@ -1404,10 +1427,10 @@ class Compiler {
 
 		this.builder.commentln(`Function epilogue fn "${node.name}":`);
 		// Copy return value to wherever the caller expects it
-		if (returnSize > 1) {
+		if (returnSize > INT_SIZE) {
 			funcCtx.readVarToRegister(returnPointerName, null, Register.r0);
-			for (let i = 0; i < returnSize; i++) {
-				this.builder.move(memReg(Register.sp, -returnSize + i), memReg(Register.r0, i));
+			for (let i = 0; i < returnSize / INT_SIZE; i++) {
+				this.builder.move(memReg(Register.sp, INT_SIZE, -returnSize + i * INT_SIZE), memReg(Register.r0, INT_SIZE, i * INT_SIZE));
 			}
 		} else {
 			this.builder.pop(reg(Register.funcRet));
@@ -1643,7 +1666,7 @@ class Compiler {
 		const argumentSize = type.parameters.reduce((acc, param) => acc + this.resolveTypeSize(param.type), 0);
 		const returnSize = this.resolveTypeSize(type.returnType);
 		let returnVarName: string;
-		if (returnSize > 1) {
+		if (returnSize > INT_SIZE) {
 			// Have to create a return variable and pass a pointer to it for the return function
 			returnVarName = `__dynCall_return_${id++}`;
 			this.currentContext.defineLocalVariable(returnVarName, null, type.returnType, false);
@@ -1653,7 +1676,7 @@ class Compiler {
 		this.builder.comment(`Function call with complex reference: ${referenceToString(call.reference)} of type ${typeToStr(type)}`);
 		this.resolveComplexReferenceAddressInR0(call.reference);
 		this.builder.comment(`Push function ptr`);
-		this.builder.push(memReg(Register.r0)); // This will be at sp-argSize-1 after we evaluate args
+		this.builder.push(memReg(Register.r0, PTR_SIZE)); // This will be at sp-argSize-1 after we evaluate args
 
 		this.builder.comment(`Evaluating arguments for call ${referenceToString(call.reference)}`);
 		call.arguments.forEach((arg, idx) => {
@@ -1676,14 +1699,14 @@ class Compiler {
 		this.builder.push(reg(Register.r0));
 
 		this.builder.comment(`Jump (complex)`);
-		this.builder.move(memReg(Register.sp, -argumentSize - 2), reg(Register.pc));
+		this.builder.move(memReg(Register.sp, PTR_SIZE, -argumentSize - INT_SIZE * 2), reg(Register.pc));
 
 		this.builder.comment(`Clean up stack after call to ${referenceToString(call.reference)}`);
 		// +1 to account for the return address we pushed
-		this.builder.sub(reg(Register.sp), imm(argumentSize + 1), reg(Register.sp));
+		this.builder.sub(reg(Register.sp), imm(argumentSize + INT_SIZE), reg(Register.sp));
 
-		if (returnSize == 1) this.builder.push(reg(Register.funcRet));
-		else if (returnSize > 1) this.currentContext.readVarToStack(returnVarName, null);
+		if (returnSize == INT_SIZE) this.builder.push(reg(Register.funcRet));
+		else if (returnSize > INT_SIZE) this.currentContext.readVarToStack(returnVarName, null);
 	}
 
 	private callMethod(struct: Struct, methodName: string, call: FunctionCall, callToken: Token, thisArgReference: Reference) {
@@ -1708,7 +1731,7 @@ class Compiler {
 
 		const returnSize = this.resolveTypeSize(funcInfo.returnType);
 		let returnVarName: string;
-		if (returnSize > 1) {
+		if (returnSize > INT_SIZE) {
 			// Have to create a return variable and pass a pointer to it for the return function
 			returnVarName = `__${name}_return_${id++}`;
 			this.currentContext.defineLocalVariable(returnVarName, null, funcInfo.returnType, false);
@@ -1741,8 +1764,8 @@ class Compiler {
 
 		// If the function returns a single value, we store it in funcRet register
 		// Push that value onto stack so whatever expression is expecting it may use it
-		if (returnSize == 1) this.builder.push(reg(Register.funcRet));
-		else if (returnSize > 1) this.currentContext.readVarToStack(returnVarName, null);
+		if (returnSize == INT_SIZE) this.builder.push(reg(Register.funcRet));
+		else if (returnSize > INT_SIZE) this.currentContext.readVarToStack(returnVarName, null);
 
 		return returnSize;
 	}
@@ -1750,7 +1773,7 @@ class Compiler {
 	private callBuiltInFunction(builtin: BuiltInFunction, call: FunctionCall) {
 		const returnSize = this.resolveTypeSize(builtin.returnType);
 		let returnVarName: string;
-		if (returnSize > 1) {
+		if (returnSize > INT_SIZE) {
 			// Have to create a return variable and pass a pointer to it for the return function
 			returnVarName = `__${builtin.name}_return_${id++}`;
 			this.currentContext.defineLocalVariable(returnVarName, null, builtin.returnType, false);
@@ -1760,8 +1783,8 @@ class Compiler {
 		this.builder.comment(`Calling built-in function ${builtin.name}`);
 		builtin.handleCall.call(this, call);
 
-		if (returnSize == 1) this.builder.push(reg(Register.funcRet));
-		else if (returnSize > 1) this.currentContext.readVarToStack(returnVarName, null);
+		if (returnSize == INT_SIZE) this.builder.push(reg(Register.funcRet));
+		else if (returnSize > INT_SIZE) this.currentContext.readVarToStack(returnVarName, null);
 	}
 
 	public handleError(e: any, span: SourceSpan) {

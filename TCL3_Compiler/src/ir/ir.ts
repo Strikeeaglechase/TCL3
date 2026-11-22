@@ -1,4 +1,4 @@
-import { IStringProvider } from "./irBuilder.js";
+import { INT_SIZE, IStringProvider } from "./irBuilder.js";
 
 enum Register {
 	pc = "pc",
@@ -22,7 +22,10 @@ const irOpCode = [
 	"DIV",
 	"NOP",
 	"HALT",
-	"OUT",
+	"OUT_INT",
+	"OUT_CHAR",
+	"OUT_FLOAT",
+	"OUT_BOOL",
 	"INSPECT",
 	"EQ",
 	"NEQ",
@@ -49,10 +52,13 @@ type IRArgumentType = "IMM" | "REG" | "MEM" | "MEM_REG" | "STR" | "NOP" | "LABEL
 
 class IRArgument {
 	constructor(
-		public type: IRArgumentType,
+		public readonly type: IRArgumentType,
 		public value: string,
-		public offset?: number
-	) {}
+		public readonly size?: number,
+		public readonly offset?: number
+	) {
+		if (size > INT_SIZE) throw new Error(`IRArgument size cannot be greater than ${INT_SIZE}, but got ${size}`);
+	}
 
 	public handle(builder: IStringProvider) {
 		if (this.offset != undefined && this.type != "MEM_REG") throw new Error(`Offset can only be used with MEM_REG type, but got ${this.type}`);
@@ -61,15 +67,16 @@ class IRArgument {
 	}
 
 	public toString() {
+		const sizeStr = this.size != undefined ? `:${this.size}` : "";
 		if (this.offset != undefined) {
-			if (this.offset < 0) return `${this.type}(${this.value}${this.offset})`;
-			return `${this.type}(${this.value}+${this.offset})`;
+			if (this.offset < 0) return `${this.type}(${this.value}${this.offset})${sizeStr}`;
+			return `${this.type}(${this.value}+${this.offset})${sizeStr}`;
 		}
-		return `${this.type}(${this.value})`;
+		return `${this.type}(${this.value})${sizeStr}`;
 	}
 
 	public equals(other: IRArgument): boolean {
-		return this.type === other.type && this.value === other.value && this.offset === other.offset;
+		return this.type === other.type && this.value == other.value && this.offset == other.offset && this.size == other.size;
 	}
 }
 

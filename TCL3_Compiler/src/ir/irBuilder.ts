@@ -3,7 +3,7 @@ import { IRArgument, IRCodeLine, IRCommentLine, IRLabelLine, IROpCode, IRProgram
 const imm = (value: number) => new IRArgument("IMM", value.toString());
 const reg = (register: Register) => new IRArgument("REG", register);
 const mem = (address: number) => new IRArgument("MEM", address.toString());
-const memReg = (register: Register, offset?: number) => new IRArgument("MEM_REG", register, offset);
+const memReg = (register: Register, size: number, offset?: number) => new IRArgument("MEM_REG", register, size, offset);
 const str = (value: string) => new IRArgument("STR", value);
 const nopArg = () => new IRArgument("NOP", "0");
 const label = (label: string) => {
@@ -30,7 +30,8 @@ const simpleThreeArgInstructions = [
 	"MOD"
 ] satisfies readonly IROpCode[];
 
-const INT_SIZE = 1; // Each cell in IR is effectively a 4-byte int, even if we represent it differently
+const INT_SIZE = 4;
+const PTR_SIZE = 4;
 interface IStringProvider {
 	getStringIndex(str: string): number;
 }
@@ -80,8 +81,21 @@ class _IRBuilder implements IStringProvider {
 		this.instruct(`MOV`, labelArg, reg(Register.pc));
 	}
 
-	public out(value: IRArgument) {
-		this.instruct(`OUT`, value);
+	public out(value: IRArgument, type: "INT" | "CHAR" | "FLOAT" | "BOOL") {
+		switch (type) {
+			case "INT":
+				this.instruct(`OUT_INT`, value);
+				break;
+			case "CHAR":
+				this.instruct(`OUT_CHAR`, value);
+				break;
+			case "FLOAT":
+				this.instruct(`OUT_FLOAT`, value);
+				break;
+			case "BOOL":
+				this.instruct(`OUT_BOOL`, value);
+				break;
+		}
 	}
 
 	public halt() {
@@ -162,4 +176,4 @@ function createIrBuilderClass(): IRBuilderType {
 const IRBuilder = createIrBuilderClass();
 type IRBuilder = InstanceType<typeof IRBuilder>;
 
-export { IRBuilder, imm, reg, mem, memReg, str, nopArg, label, INT_SIZE, ThreeArgInstructions, IStringProvider };
+export { IRBuilder, imm, reg, mem, memReg, str, nopArg, label, INT_SIZE, PTR_SIZE, ThreeArgInstructions, IStringProvider };

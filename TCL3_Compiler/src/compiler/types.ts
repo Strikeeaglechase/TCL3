@@ -5,11 +5,12 @@ import { TokenType } from "../parser/tokenizer.js";
 const primitiveSizeMap: Record<PrimitiveTypeName, number> = {
 	void: 0,
 	int: INT_SIZE,
-	char: INT_SIZE,
-	bool: INT_SIZE
+	char: 1,
+	bool: 1,
+	float: 4
 };
 
-const primitiveTypeNames = ["void", "int", "char", "bool"] as const;
+const primitiveTypeNames = ["void", "int", "char", "bool", "float"] as const;
 type PrimitiveTypeName = (typeof primitiveTypeNames)[number];
 const isPrimitiveTypeName = (type: string): type is PrimitiveTypeName => {
 	return primitiveTypeNames.includes(type as PrimitiveTypeName);

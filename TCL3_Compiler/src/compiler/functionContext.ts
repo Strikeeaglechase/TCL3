@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 
 import { Register } from "../ir/ir.js";
-import { imm, IRBuilder, label, memReg, reg } from "../ir/irBuilder.js";
+import { imm, INT_SIZE, IRBuilder, label, memReg, PTR_SIZE, reg } from "../ir/irBuilder.js";
 import { ASTType, ASTTypeRef, FunctionDeclaration, FunctionTypeRef, Reference, ReturnStatement, VariableDeclaration } from "../parser/ast.js";
 import { mainFnName, Token } from "../parser/tokenizer.js";
 import { walk, walkButAvoid } from "../parser/walker.js";
@@ -250,9 +250,13 @@ class FunctionContext implements IType {
 		//     fp ^                       sp ^
 		// NOTE: If we want to then copy the struct off the stack via popping, we need to understand that
 		//       the struct will be in reverse order
-		for (let i = 0; i < readSize; i++) {
-			// this.builder.add(reg(Register.fp), imm(local.stackOffset + i + offset), reg(Register.offset));
-			this.builder.push(memReg(Register.fp, local.stackOffset + i + offset));
+		if (readSize >= INT_SIZE) {
+			for (let i = 0; i < readSize / INT_SIZE; i++) {
+				// this.builder.add(reg(Register.fp), imm(local.stackOffset + i + offset), reg(Register.offset));
+				this.builder.push(memReg(Register.fp, INT_SIZE, local.stackOffset + i * INT_SIZE + offset));
+			}
+		} else {
+			this.builder.push(memReg(Register.fp, readSize, local.stackOffset + offset));
 		}
 	}
 
@@ -265,9 +269,13 @@ class FunctionContext implements IType {
 		const readSize = size == -1 ? local.size : size;
 
 		// Reversed order of readVarToStack, as we want to pop the values off the stack in reverse order
-		for (let i = readSize - 1; i >= 0; i--) {
-			// this.builder.add(reg(Register.fp), imm(local.stackOffset + i), reg(Register.offset));
-			this.builder.pop(memReg(Register.fp, local.stackOffset + i + offset));
+		if (readSize >= INT_SIZE) {
+			for (let i = readSize / INT_SIZE - 1; i >= 0; i--) {
+				// this.builder.add(reg(Register.fp), imm(local.stackOffset + i), reg(Register.offset));
+				this.builder.pop(memReg(Register.fp, INT_SIZE, local.stackOffset + i * INT_SIZE + offset));
+			}
+		} else {
+			this.builder.pop(memReg(Register.fp, readSize, local.stackOffset + offset));
 		}
 	}
 
@@ -275,10 +283,10 @@ class FunctionContext implements IType {
 		// The generated return pointer has no source token.
 		if (!this.locals.has(name)) throw new Error(`Local variable '${nameToken?.value ?? name}' is not defined in function '${this.nameToken.value}'.`);
 		const local = this.locals.get(name);
-		if (local.size > 1) throw new Error(`Reading local variable '${nameToken?.value ?? name}' to register is only supported for single-cell types.`);
+		if (local.size > INT_SIZE) throw new Error(`Reading local variable '${nameToken?.value ?? name}' to register is only supported for single-cell types.`);
 
 		// this.builder.add(reg(Register.fp), imm(local.stackOffset), reg(Register.offset));
-		this.builder.move(memReg(Register.fp, local.stackOffset), reg(register));
+		this.builder.move(memReg(Register.fp, local.size, local.stackOffset), reg(register));
 	}
 
 	public getAddressOfLocalInRegister(name: string, register: Register) {
@@ -290,15 +298,17 @@ class FunctionContext implements IType {
 		this.builder.push(reg(Register.r0));
 	}
 
-	public setVarFromRegister(name: string, nameToken: Token, register: Register, offset: number = null) {
+	public setVarFromRegister(name: string, nameToken: Token, register: Register): void;
+	public setVarFromRegister(name: string, nameToken: Token, register: Register, offset: number, size: number): void;
+	public setVarFromRegister(name: string, nameToken: Token, register: Register, offset: number = null, size: number = null): void {
 		if (!this.locals.has(name)) throw new Error(`Local variable '${nameToken.value}' is not defined in function '${this.nameToken.value}'.`);
 
 		const local = this.locals.get(name);
-		if (local.size > 1 && offset === null)
+		if (local.size > INT_SIZE && offset === null)
 			throw new Error(`Setting local variable '${nameToken.value}' from register is only supported for single-cell types.`);
 
 		const inputOffset = offset !== null ? offset : 0;
-		this.builder.move(reg(register), memReg(Register.fp, local.stackOffset + inputOffset));
+		this.builder.move(reg(register), memReg(Register.fp, size ?? local.size, local.stackOffset + inputOffset));
 	}
 
 	public useVariableAsPointerAndSetFromStack(name: string, nameToken: Token, offset: number, dereferenceCount: number) {
@@ -313,7 +323,7 @@ class FunctionContext implements IType {
 			if (currentType.type != ASTType.WrappedTypeRef)
 				throw new Error(`Attempt to dereference a non-pointer variable '${nameToken.value}' - type is '${typeToStr(local.type)}'`);
 			currentType = currentType.inner;
-			this.builder.move(memReg(Register.fp, local.stackOffset), reg(Register.r0));
+			this.builder.move(memReg(Register.fp, PTR_SIZE, local.stackOffset), reg(Register.r0));
 		} else {
 			// Ensure r0 still has the pointer if we're not doing an init dereference, as we want to write to the pointer itself
 			this.builder.add(reg(Register.fp), imm(local.stackOffset), reg(Register.r0));
@@ -323,7 +333,7 @@ class FunctionContext implements IType {
 			if (currentType.type != ASTType.WrappedTypeRef)
 				throw new Error(`Attempt to dereference a non-pointer variable '${nameToken.value}' - type is '${typeToStr(local.type)}'`);
 			currentType = currentType.inner;
-			this.builder.move(memReg(Register.r0), reg(Register.r0)); // Deref for each level
+			this.builder.move(memReg(Register.r0, PTR_SIZE), reg(Register.r0)); // Deref for each level
 		}
 
 		if (currentType.type != ASTType.WrappedTypeRef)
@@ -331,9 +341,14 @@ class FunctionContext implements IType {
 
 		const innerSize = this.compiler.resolveTypeSize(currentType.inner);
 
-		for (let i = innerSize - 1; i >= 0; i--) {
-			this.builder.add(memReg(Register.r0), imm(offset + i), reg(Register.r1));
-			this.builder.pop(memReg(Register.r1));
+		if (innerSize >= INT_SIZE) {
+			for (let i = innerSize / INT_SIZE - 1; i >= 0; i--) {
+				this.builder.add(memReg(Register.r0, PTR_SIZE), imm(offset + i), reg(Register.r1));
+				this.builder.pop(memReg(Register.r1, INT_SIZE));
+			}
+		} else {
+			this.builder.add(memReg(Register.r0, PTR_SIZE), imm(offset), reg(Register.r1));
+			this.builder.pop(memReg(Register.r1, innerSize));
 		}
 	}
 
@@ -349,7 +364,7 @@ class FunctionContext implements IType {
 
 		currentType = currentType.inner;
 		this.builder.comment(`Initial deref of local variable '${name}'`);
-		this.builder.move(memReg(Register.fp, local.stackOffset), reg(Register.r0));
+		this.builder.move(memReg(Register.fp, PTR_SIZE, local.stackOffset), reg(Register.r0));
 
 		// Remaining derefs
 		for (let d = 0; d < dereferenceCount - 1; d++) {
@@ -357,14 +372,18 @@ class FunctionContext implements IType {
 				throw new Error(`Attempt to dereference a non-pointer variable '${nameToken.value}' - type is '${typeToStr(local.type)}'`);
 			currentType = currentType.inner;
 			this.builder.comment(`Deref level ${d + 1} of local variable '${name}'`);
-			this.builder.move(memReg(Register.r0), reg(Register.r0)); // Deref for each level
+			this.builder.move(memReg(Register.r0, PTR_SIZE), reg(Register.r0)); // Deref for each level
 		}
 
 		const innerSize = this.compiler.resolveTypeSize(currentType);
 
-		for (let i = 0; i < innerSize; i++) {
-			this.builder.add(reg(Register.r0), imm(i), reg(Register.r1));
-			this.builder.push(memReg(Register.r1));
+		if (innerSize >= INT_SIZE) {
+			for (let i = 0; i < innerSize; i++) {
+				this.builder.add(reg(Register.r0), imm(i), reg(Register.r1));
+				this.builder.push(memReg(Register.r1, INT_SIZE));
+			}
+		} else {
+			this.builder.push(memReg(Register.r0, innerSize));
 		}
 	}
 
@@ -427,7 +446,7 @@ class FunctionContext implements IType {
 		const argSize = local.type.parameters.reduce((acc, param) => acc + this.compiler.resolveTypeSize(param.type), 0);
 		return {
 			getAddress: () => {
-				this.builder.move(memReg(Register.fp, local.stackOffset), reg(Register.r0));
+				this.builder.move(memReg(Register.fp, PTR_SIZE, local.stackOffset), reg(Register.r0));
 				return reg(Register.r0);
 			},
 			addressExtraInstructionCount: 1,
