@@ -41,14 +41,15 @@ fn main(): void {
 	out true && false;
 	out false || true;
 
-	// int, char, and bool share a representation but require explicit casts.
+	// Distinct primitive sizes require a value cast before reading through an int pointer.
 	let letter: char = 'A';
 	let truthy: bool = <bool>7;
 	out letter;
 	out truthy;
 
 	let letterPointer: char* = &letter;
-	let integerPointer: int* = <int*>letterPointer;
+	let integerFromLetter: int = <int>*letterPointer;
+	let integerPointer: int* = &integerFromLetter;
 	out *integerPointer;
 
 	let integerValue: int = <int>truthy;
@@ -57,7 +58,7 @@ fn main(): void {
 
 	out readInt(<int>letter);
 	out readInt(<int>truthy);
-	out readIntPointer(<int*>letterPointer);
+	out readIntPointer(integerPointer);
 
 	// Logical operators are eager rather than short-circuiting.
 	let evaluationCount = 0;

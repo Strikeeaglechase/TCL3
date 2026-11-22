@@ -43,7 +43,7 @@ function linkCompileAndExecute(sourceFilePath: string) {
 	compareIrPrograms(irProgram, loaderIr);
 
 	const unitTester = new UnitTester();
-	// unitTester.runTests();
+	unitTester.runTests();
 }
 
 function executeIrFile(irFilePath: string) {

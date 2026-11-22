@@ -6,7 +6,7 @@
 // EXPECT: 1
 // EXPECT: 70
 // EXPECT: 9
-// EXPECT: 3
+// EXPECT: 12
 
 enum TransformMode {
 	increment,
