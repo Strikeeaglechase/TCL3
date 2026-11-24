@@ -1,4 +1,4 @@
-import { IRArgument, IRCodeLine, IRLabelLine, IRLine, IROpCode, IRProgram, Register } from "./ir.js";
+import { IRArgument, IRArgumentType, IRCodeLine, IRLabelLine, IRLine, IROpCode, IRProgram, Register } from "./ir.js";
 import { imm, label, reg } from "./irBuilder.js";
 
 const MISS_CYCLES_BEFORE_EXIT = 3;
@@ -58,7 +58,7 @@ class IROptimizer {
 	}
 
 	private isReferenced(lines: IRLine[], arg: IRArgument): boolean {
-		if (arg.type === "IMM") return false;
+		if (arg.type === IRArgumentType.IMM) return false;
 		return lines.some(line => {
 			if (!(line instanceof IRCodeLine)) return false;
 			return line.args.some(a => a.equals(arg));
@@ -79,7 +79,7 @@ class IROptimizer {
 			if (!(line instanceof IRCodeLine)) return false;
 			if (line.opcode == "PUSH" || line.opcode == "POP") return true;
 			const someArgIsSpReg = line.args.some(arg => {
-				return (arg.type === "REG" && arg.value === Register.sp) || (arg.type === "MEM_REG" && arg.value === Register.sp);
+				return (arg.type === IRArgumentType.REG && arg.value === Register.sp) || (arg.type === IRArgumentType.MEM_REG && arg.value === Register.sp);
 			});
 
 			if (someArgIsSpReg) return true;
@@ -129,7 +129,7 @@ class IROptimizer {
 			// If do any stack ops can't safely direct write
 			if (this.containsStackOp(betweenLines)) continue;
 			// Check if we're poping to a mem reg and the register is modified in between, can't safely direct write
-			if (pop.args[0].type == "MEM_REG" && this.isModifiedWithin(betweenLines, pop.args[0].value as Register)) continue;
+			if (pop.args[0].type == IRArgumentType.MEM_REG && this.isModifiedWithin(betweenLines, pop.args[0].value as Register)) continue;
 
 			const mov = new IRCodeLine("MOV", push.args[0], pop.args[0]);
 			this.code.splice(i, 1, mov);

@@ -48,7 +48,16 @@ const irOpCode = [
 ] as const;
 const isOpCode = (value: any): value is IROpCode => irOpCode.includes(value);
 type IROpCode = (typeof irOpCode)[number];
-type IRArgumentType = "IMM" | "REG" | "MEM" | "MEM_REG" | "STR" | "NOP" | "LABEL";
+
+enum IRArgumentType {
+	IMM = "IMM",
+	REG = "REG",
+	MEM = "MEM",
+	MEM_REG = "MEM_REG",
+	STR = "STR",
+	NOP = "NOP",
+	LABEL = "LABEL"
+}
 
 class IRArgument {
 	constructor(
@@ -61,8 +70,8 @@ class IRArgument {
 	}
 
 	public handle(builder: IStringProvider) {
-		if (this.offset != undefined && this.type != "MEM_REG") throw new Error(`Offset can only be used with MEM_REG type, but got ${this.type}`);
-		if (this.type != "STR") return;
+		if (this.offset != undefined && this.type != IRArgumentType.MEM_REG) throw new Error(`Offset can only be used with MEM_REG type, but got ${this.type}`);
+		if (this.type != IRArgumentType.STR) return;
 		this.value = builder.getStringIndex(this.value).toString();
 	}
 
@@ -148,4 +157,4 @@ class IRLabelLine extends IRLine {
 	}
 }
 
-export { Register, IRArgument, IROpCode, irOpCode, isOpCode, IRProgram, IRLine, IRCodeLine, IRCommentLine, IRLabelLine, isRegister };
+export { Register, IRArgument, IRArgumentType, IROpCode, irOpCode, isOpCode, IRProgram, IRLine, IRCodeLine, IRCommentLine, IRLabelLine, isRegister };

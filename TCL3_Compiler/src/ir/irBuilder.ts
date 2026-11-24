@@ -1,14 +1,14 @@
-import { IRArgument, IRCodeLine, IRCommentLine, IRLabelLine, IROpCode, IRProgram, Register } from "./ir.js";
+import { IRArgument, IRArgumentType, IRCodeLine, IRCommentLine, IRLabelLine, IROpCode, IRProgram, Register } from "./ir.js";
 
-const imm = (value: number) => new IRArgument("IMM", value.toString());
-const reg = (register: Register) => new IRArgument("REG", register);
-const mem = (address: number) => new IRArgument("MEM", address.toString());
-const memReg = (register: Register, size: number, offset?: number) => new IRArgument("MEM_REG", register, size, offset);
-const str = (value: string) => new IRArgument("STR", value);
-const nopArg = () => new IRArgument("NOP", "0");
+const imm = (value: number) => new IRArgument(IRArgumentType.IMM, value.toString());
+const reg = (register: Register) => new IRArgument(IRArgumentType.REG, register);
+const mem = (address: number) => new IRArgument(IRArgumentType.MEM, address.toString());
+const memReg = (register: Register, size: number, offset?: number) => new IRArgument(IRArgumentType.MEM_REG, register, size, offset);
+const str = (value: string) => new IRArgument(IRArgumentType.STR, value);
+const nopArg = () => new IRArgument(IRArgumentType.NOP, "0");
 const label = (label: string) => {
 	if (!label) throw new Error("Label cannot be empty");
-	return new IRArgument("LABEL", label);
+	return new IRArgument(IRArgumentType.LABEL, label);
 };
 
 const simpleThreeArgInstructions = [
@@ -39,6 +39,8 @@ interface IStringProvider {
 class _IRBuilder implements IStringProvider {
 	private program: IRProgram = { code: [], strings: [] };
 	private nextComments: string[] = []; // On-line comments want to be added to the next instruction, queue here
+
+	private insertLabelAt: { afterNLines: number; label: string }[] = [];
 
 	public get currentAddress() {
 		return this.program.code.length;
@@ -106,6 +108,10 @@ class _IRBuilder implements IStringProvider {
 		this.program.code.push(new IRLabelLine(label));
 	}
 
+	public addLabelAfterNLines(label: string, afterNLines: number) {
+		this.insertLabelAt.push({ afterNLines, label });
+	}
+
 	public getStringIndex(str: string): number {
 		if (!this.program.strings.includes(str)) this.program.strings.push(str);
 		return this.program.strings.indexOf(str);
@@ -130,6 +136,13 @@ class _IRBuilder implements IStringProvider {
 		this.nextComments.forEach(cmt => codeLine.addComment(cmt));
 		this.nextComments = [];
 		this.program.code.push(codeLine);
+
+		this.insertLabelAt.forEach(il => il.afterNLines--);
+		this.insertLabelAt = this.insertLabelAt.filter(il => {
+			if (il.afterNLines == 0) this.addLabel(il.label);
+
+			return il.afterNLines > 0;
+		});
 	}
 
 	public getCode() {
@@ -176,4 +189,4 @@ function createIrBuilderClass(): IRBuilderType {
 const IRBuilder = createIrBuilderClass();
 type IRBuilder = InstanceType<typeof IRBuilder>;
 
-export { IRBuilder, imm, reg, mem, memReg, str, nopArg, label, INT_SIZE, PTR_SIZE, ThreeArgInstructions, IStringProvider };
+export { IRBuilder, imm, reg, mem, memReg, str, nopArg, label, INT_SIZE, PTR_SIZE, ThreeArgInstructions, IStringProvider, simpleThreeArgInstructions };

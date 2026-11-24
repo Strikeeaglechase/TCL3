@@ -94,6 +94,11 @@ class BinaryExpressionTypeEvalResult {
 const programExitLabel = `__program_exit`;
 const returnPointerName = `__returnPointer`;
 
+// Changes how modifying PC works. When false, return PC location for calls can be calculated via push(pc+2)
+// When true, an additional return label will be inserted, and instead will push(retLabel)
+// This exists as WASM can't do arbitrary jumps into code, so all jumps are implemented as own function blocks
+const noRawJumps = true;
+
 class Compiler {
 	public currentContext: FunctionContext = null;
 
@@ -1705,9 +1710,14 @@ class Compiler {
 		}
 
 		this.builder.comment(`Push return address`);
-		this.builder.add(reg(Register.pc), imm(2), reg(Register.r0));
-		this.builder.push(reg(Register.r0));
-
+		if (noRawJumps) {
+			const retLabel = `__return_address_${id++}`;
+			this.builder.addLabelAfterNLines(retLabel, 2);
+			this.builder.push(label(retLabel));
+		} else {
+			this.builder.add(reg(Register.pc), imm(2), reg(Register.r0));
+			this.builder.push(reg(Register.r0));
+		}
 		this.builder.comment(`Jump (complex)`);
 		this.builder.move(memReg(Register.sp, PTR_SIZE, -argumentSize - INT_SIZE * 2), reg(Register.pc));
 
@@ -1762,8 +1772,14 @@ class Compiler {
 		}
 
 		this.builder.comment(`Push return address`);
-		this.builder.add(reg(Register.pc), imm(2 + funcInfo.addressExtraInstructionCount), reg(Register.r0));
-		this.builder.push(reg(Register.r0));
+		if (noRawJumps) {
+			const retLabel = `__return_address_${id++}`;
+			this.builder.addLabelAfterNLines(retLabel, 2 + funcInfo.addressExtraInstructionCount);
+			this.builder.push(label(retLabel));
+		} else {
+			this.builder.add(reg(Register.pc), imm(2 + funcInfo.addressExtraInstructionCount), reg(Register.r0));
+			this.builder.push(reg(Register.r0));
+		}
 
 		this.builder.comment(`Jump`);
 		this.builder.move(funcInfo.getAddress(), reg(Register.pc));

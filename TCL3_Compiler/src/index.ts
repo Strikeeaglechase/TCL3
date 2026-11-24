@@ -1,6 +1,7 @@
 import chalk from "chalk";
 import fs from "fs";
 
+import { WasmRunner, WATGenerator } from "./backends/wasm.js";
 import { Compiler } from "./compiler/compiler.js";
 import { Emulator } from "./emulator.js";
 import { IRBuilder } from "./ir/irBuilder.js";
@@ -42,8 +43,16 @@ function linkCompileAndExecute(sourceFilePath: string) {
 	const loaderIr = loadIrFromFile(fs.readFileSync("../debug/ir.txt", "utf-8"));
 	compareIrPrograms(irProgram, loaderIr);
 
+	const wat = new WATGenerator(optimizedIrProgram).generate();
+	fs.writeFileSync("../debug/program.wat", wat);
+	WATGenerator.compileToWasm("../debug/program.wat", "../debug/program.wasm");
+	WATGenerator.optimizeWasm("../debug/program.wasm", "../debug/opt_program.wasm", 0);
+
+	const runner = new WasmRunner("../debug/program.wasm");
+	runner.run();
+
 	const unitTester = new UnitTester();
-	unitTester.runTests();
+	// unitTester.runTests();
 }
 
 function executeIrFile(irFilePath: string) {

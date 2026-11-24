@@ -1,4 +1,4 @@
-import { IRArgument, IRCodeLine, IRLabelLine, IROpCode, IRProgram } from "./ir.js";
+import { IRArgument, IRArgumentType, IRCodeLine, IRLabelLine, IROpCode, IRProgram } from "./ir.js";
 
 function loadIrFromFile(content: string): IRProgram {
 	const match = content.match(/CODE:([\w\W\n]*)STRINGS:([\w\W\n]*)/);
@@ -60,17 +60,19 @@ function loadIrFromFile(content: string): IRProgram {
 
 function parseIrArgument(arg: string): IRArgument {
 	const match = arg.match(/(\w+)\((.+?)\)(?::(\d))?/);
-	const [_, type, value, size] = match;
+	const [_, rawType, value, size] = match;
+	const type = Object.values(IRArgumentType).find(argumentType => argumentType === rawType);
+	if (!type) throw new Error(`Invalid IR argument type: ${rawType}`);
 
-	if (type == "MEM_REG" && (value.includes("-") || value.includes("+"))) {
+	if (type == IRArgumentType.MEM_REG && (value.includes("-") || value.includes("+"))) {
 		const offsetMatch = value.match(/(.+?)([+-]\d+)/);
 		if (!offsetMatch) throw new Error(`Invalid MEM_REG argument: ${arg}`);
 		const [_, regValue, offset] = offsetMatch;
-		return new IRArgument(type as any, regValue, parseInt(size), parseInt(offset));
+		return new IRArgument(type, regValue, parseInt(size), parseInt(offset));
 	}
 
 	const sizeValue = size ? parseInt(size) : undefined;
-	return new IRArgument(type as any, value, sizeValue);
+	return new IRArgument(type, value, sizeValue);
 }
 
 function compareIrPrograms(prog1: IRProgram, prog2: IRProgram) {

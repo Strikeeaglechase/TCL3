@@ -1,4 +1,4 @@
-import { IRArgument, IRCodeLine, IRLabelLine, IROpCode, IRProgram, Register } from "./ir/ir.js";
+import { IRArgument, IRArgumentType, IRCodeLine, IRLabelLine, IROpCode, IRProgram, Register } from "./ir/ir.js";
 import { INT_SIZE } from "./ir/irBuilder.js";
 
 const memSize = 1024 * 64; // 64KB
@@ -313,15 +313,15 @@ class Emulator {
 
 	private setValue(arg: IRArgument, value: number) {
 		switch (arg.type) {
-			// case "MEM":
+			// case IRArgumentType.MEM:
 			// 	this.memory[parseInt(arg.value)] = value;
 			// 	break;
-			case "MEM_REG":
+			case IRArgumentType.MEM_REG:
 				if (!(arg.value in this.registers)) throw new Error(`Invalid register: ${arg.value}`);
 				const addr = this.registers[arg.value as Register] + (arg.offset || 0);
 				write(this.memory, addr, value, arg.size);
 				break;
-			case "REG":
+			case IRArgumentType.REG:
 				if (!(arg.value in this.registers)) throw new Error(`Invalid register: ${arg.value}`);
 				this.registers[arg.value as Register] = value;
 				break;
@@ -332,25 +332,25 @@ class Emulator {
 
 	private getValue(arg: IRArgument): number {
 		switch (arg.type) {
-			case "IMM":
+			case IRArgumentType.IMM:
 				return parseFloat(arg.value);
-			case "REG":
+			case IRArgumentType.REG:
 				if (!(arg.value in this.registers)) throw new Error(`Invalid register: ${arg.value}`);
 				return this.registers[arg.value as Register];
-			// case "MEM":
+			// case IRArgumentType.MEM:
 			// 	const val = this.memory[parseInt(arg.value)];
 			// 	if (typeof val != "number") throw new Error(`Invalid memory access at address ${arg.value}: ${val}`);
 			// 	return val;
-			case "MEM_REG":
+			case IRArgumentType.MEM_REG:
 				if (!(arg.value in this.registers)) throw new Error(`Invalid register: ${arg.value}`);
 				const addr = this.registers[arg.value as Register] + (arg.offset || 0);
 				const memVal = read(this.memory, addr, arg.size);
 				if (typeof memVal != "number") throw new Error(`Invalid memory access at address ${addr}: ${memVal}`);
 				return memVal;
-			case "LABEL":
+			case IRArgumentType.LABEL:
 				if (!this.labelIndexes.has(arg.value)) throw new Error(`Label not found: ${arg.value}`);
 				return this.labelIndexes.get(arg.value)!;
-			case "STR":
+			case IRArgumentType.STR:
 				const strIndex = parseInt(arg.value);
 				if (!this.stringLut.has(strIndex)) throw new Error(`String index not found: ${strIndex}`);
 				return this.stringLut.get(strIndex)!;
