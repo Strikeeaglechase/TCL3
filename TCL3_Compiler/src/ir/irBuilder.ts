@@ -13,7 +13,7 @@ const label = (label: string) => {
 	return new IRArgument(IRArgumentType.LABEL, label);
 };
 
-const floatThreeArgInstructions = ["FADD", "FSUB", "FMUL", "FDIV", "FMOD", "FEQ", "FNEQ", "FGT", "FGTE"] satisfies readonly IROpCode[];
+const floatThreeArgInstructions = ["FADD", "FSUB", "FMUL", "FDIV", "FEQ", "FNEQ", "FGT", "FGTE"] satisfies readonly IROpCode[];
 
 const threeArgInstructions = [
 	"ADD",

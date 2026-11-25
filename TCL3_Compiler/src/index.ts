@@ -1,6 +1,7 @@
 import chalk from "chalk";
 import fs from "fs";
 
+import { WasmRunner } from "./backends/wasm.js";
 import { Compiler } from "./compiler/compiler.js";
 import { Emulator } from "./emulator.js";
 import { IRBuilder } from "./ir/irBuilder.js";
@@ -50,7 +51,7 @@ function linkCompileAndExecute(sourceFilePath: string) {
 	// const runner = new WasmRunner("../debug/program.wasm");
 	// runner.run();
 
-	const unitTester = new UnitTester();
+	const unitTester = new UnitTester(WasmRunner);
 	unitTester.runTests();
 }
 

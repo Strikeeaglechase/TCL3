@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 
 import { Compiler } from "./compiler/compiler.js";
-import { Emulator } from "./emulator.js";
+import { ProgramRunnerClass } from "./emulator.js";
 import { IROptimizer } from "./ir/irOptimizer.js";
 import { Linker } from "./linker/linker.js";
 
@@ -18,7 +18,7 @@ interface TestFile {
 class UnitTester {
 	private testFilePaths: string[] = [];
 
-	constructor() {
+	constructor(private readonly runnerCtor: ProgramRunnerClass) {
 		this.testFilePaths = fs
 			.readdirSync(`../unitTests`)
 			.filter(file => file.endsWith(`.tcl3`))
@@ -48,7 +48,7 @@ class UnitTester {
 		};
 	}
 
-	public runTests() {
+	public async runTests() {
 		const testFiles = this.testFilePaths.map(filePath => this.loadTestFile(filePath));
 		let allPassed = true;
 		let passCount = 0;
@@ -77,7 +77,7 @@ class UnitTester {
 			}
 
 			try {
-				const result = this.runTest(testFile);
+				const result = await this.runTest(testFile);
 				if (!result.passed) allPassed = false;
 
 				passCount += result.totalTests - result.failCount;
@@ -111,14 +111,14 @@ class UnitTester {
 		return compiler.compile();
 	}
 
-	private runTest(file: TestFile) {
+	private async runTest(file: TestFile) {
 		const output = this.compileTest(file);
 		const optimizer = new IROptimizer(output);
 		const optimizedOutput = optimizer.optimize();
-		const emulator = new Emulator(output, true);
-		const optimizedEmulator = new Emulator(optimizedOutput, true);
-		const result = emulator.execute();
-		const optimizedResult = optimizedEmulator.execute();
+		const emulator = new this.runnerCtor(output, true);
+		const optimizedEmulator = new this.runnerCtor(optimizedOutput, true);
+		const result = await emulator.execute();
+		const optimizedResult = await optimizedEmulator.execute();
 
 		let failCount = 0;
 		let optimizedFailCount = 0;

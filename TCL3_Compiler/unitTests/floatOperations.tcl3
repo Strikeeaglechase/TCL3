@@ -10,8 +10,6 @@ fn main(): void {
 	out (x * y) == 3.0;
 	// EXPECT: 1
 	out (3.0 / y) == 1.5;
-	// EXPECT: 1
-	out (5.5 % y) == 1.5;
 
 	// EXPECT: 0
 	out x == y;

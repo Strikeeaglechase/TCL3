@@ -1,6 +1,6 @@
+import { bitsToFloat32, float32ToBits } from "./ir/float32.js";
 import { IRArgument, IRArgumentType, IRCodeLine, IRLabelLine, IROpCode, IRProgram, Register } from "./ir/ir.js";
 import { INT_SIZE } from "./ir/irBuilder.js";
-import { bitsToFloat32, float32ToBits } from "./ir/float32.js";
 
 const memSize = 1024 * 64; // 64KB
 
@@ -20,7 +20,14 @@ function read(mem: number[], address: number, size: number): number {
 	return value;
 }
 
-class Emulator {
+abstract class IProgramRunner {
+	constructor(program: IRProgram, silent = false) {}
+	abstract execute(): { outputs: number[]; ticks: number } | Promise<{ outputs: number[]; ticks: number }>;
+}
+
+type ProgramRunnerClass = new (program: IRProgram, silent?: boolean) => IProgramRunner;
+
+class Emulator extends IProgramRunner {
 	private registers: Record<Register, number> = {
 		[Register.pc]: 0,
 		[Register.sp]: 0,
@@ -45,6 +52,7 @@ class Emulator {
 		private program: IRProgram,
 		private silent = false
 	) {
+		super(program, silent);
 		// Place strings into memory
 		let currentStringAddress = 0;
 		this.program.strings.forEach((str, index) => {
@@ -64,8 +72,11 @@ class Emulator {
 			}
 		});
 
-		this.registers.fp = currentStringAddress + 5;
-		this.registers.sp = currentStringAddress + 5;
+		let frameStartAddress = currentStringAddress + 2;
+		while (frameStartAddress % INT_SIZE != 0) frameStartAddress++;
+
+		this.registers.fp = frameStartAddress;
+		this.registers.sp = frameStartAddress;
 	}
 
 	public execute() {
@@ -100,13 +111,11 @@ class Emulator {
 
 			case "PUSH":
 				write(this.memory, this.registers.sp, this.getValue(args[0]), INT_SIZE);
-				// this.memory[this.registers.sp] = this.getValue(args[0]);
 				this.registers.sp += INT_SIZE;
 				break;
 
 			case "POP":
 				this.registers.sp -= INT_SIZE;
-				// this.setValue(args[0], this.memory[this.registers.sp]);
 				this.setValue(args[0], read(this.memory, this.registers.sp, INT_SIZE));
 				break;
 
@@ -126,7 +135,7 @@ class Emulator {
 				break;
 
 			case "DIV":
-				const quotient = Math.floor(this.getValue(args[0]) / this.getValue(args[1]));
+				const quotient = Math.trunc(this.getValue(args[0]) / this.getValue(args[1]));
 				this.setValue(args[2], quotient);
 				break;
 
@@ -148,11 +157,6 @@ class Emulator {
 			case "FDIV":
 				const floatQuotient = this.getFloatValue(args[0]) / this.getFloatValue(args[1]);
 				this.setFloatValue(args[2], floatQuotient);
-				break;
-
-			case "FMOD":
-				const floatRemainder = this.getFloatValue(args[0]) % this.getFloatValue(args[1]);
-				this.setFloatValue(args[2], floatRemainder);
 				break;
 
 			case "FEQ":
@@ -401,4 +405,4 @@ class Emulator {
 	}
 }
 
-export { Emulator };
+export { Emulator, IProgramRunner, ProgramRunnerClass };

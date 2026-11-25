@@ -1053,7 +1053,6 @@ class Compiler {
 			"-": "fsub",
 			"*": "fmul",
 			"/": "fdiv",
-			"%": "fmod",
 			"==": "feq",
 			"!=": "fneq",
 			">": "fgt",

@@ -24,7 +24,6 @@ const irOpCode = [
 	"FSUB",
 	"FMUL",
 	"FDIV",
-	"FMOD",
 	"FEQ",
 	"FNEQ",
 	"FGT",

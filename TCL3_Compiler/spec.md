@@ -586,7 +586,7 @@ For an array variable, `sizeof(array)` returns the size of its pointer, not the 
 | Address-of                | `&`    |
 | Dereference               | `*`    |
 
-Arithmetic follows the current JavaScript-based runtime. Division evaluates `Math.floor(left / right)`, and modulo evaluates JavaScript's `left % right`. Their behavior for negative, zero, non-finite, or `NaN` operands is the behavior of those JavaScript operations.
+Arithmetic follows the current JavaScript-based runtime. Integer division evaluates `Math.trunc(left / right)`, and modulo evaluates JavaScript's `left % right`. Their behavior for negative, zero, non-finite, or `NaN` operands is the behavior of those JavaScript operations.
 
 Logical `&&` and `||` always evaluate both operands and produce a `bool` represented by `0` or `1`; they do not short-circuit. Comparison results are likewise `bool` values represented by `0` or `1`.
 

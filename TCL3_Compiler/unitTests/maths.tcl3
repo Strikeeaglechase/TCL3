@@ -77,7 +77,7 @@ fn main(): void {
 	out moduloAssignment;
 
 	// JavaScript-backed signed arithmetic edge cases.
-	// EXPECT: -2
+	// EXPECT: -1
 	// EXPECT: -1
 	// EXPECT: -1
 	// EXPECT: -2147483648

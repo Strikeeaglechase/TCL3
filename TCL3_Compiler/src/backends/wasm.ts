@@ -1,6 +1,8 @@
 import { execSync } from "child_process";
 import fs from "fs";
+import path from "path";
 
+import { IProgramRunner } from "../emulator.js";
 import { IRArgument, IRArgumentType, IRCodeLine, IRLabelLine, IRProgram, Register } from "../ir/ir.js";
 import { threeArgInstructions } from "../ir/irBuilder.js";
 
@@ -26,7 +28,7 @@ const storeTypeMap = {
 };
 
 type ThreeArgInstruction = (typeof threeArgInstructions)[number];
-const simpleThreeArgMap: Partial<Record<ThreeArgInstruction, string>> = {
+const integerThreeArgMap: Partial<Record<ThreeArgInstruction, string>> = {
 	ADD: "i32.add",
 	SUB: "i32.sub",
 	MUL: "i32.mul",
@@ -40,13 +42,25 @@ const simpleThreeArgMap: Partial<Record<ThreeArgInstruction, string>> = {
 	EQ: "i32.eq",
 	NEQ: "i32.ne",
 	GT: "i32.gt_s",
-	GTE: "i32.ge_s",
-	LOGIC_AND: null,
-	LOGIC_OR: null
+	GTE: "i32.ge_s"
+};
+
+const floatArithmeticMap: Partial<Record<ThreeArgInstruction, string>> = {
+	FADD: "f32.add",
+	FSUB: "f32.sub",
+	FMUL: "f32.mul",
+	FDIV: "f32.div"
+};
+
+const floatComparisonMap: Partial<Record<ThreeArgInstruction, string>> = {
+	FEQ: "f32.eq",
+	FNEQ: "f32.ne",
+	FGT: "f32.gt",
+	FGTE: "f32.ge"
 };
 
 function opIsThreeArg(op: string): op is ThreeArgInstruction {
-	return threeArgInstructions.includes(op as ThreeArgInstruction) && simpleThreeArgMap[op as ThreeArgInstruction] != null;
+	return threeArgInstructions.includes(op as ThreeArgInstruction);
 }
 
 const isPc = (arg: IRArgument) => arg.type == IRArgumentType.REG && arg.value == Register.pc;
@@ -189,20 +203,63 @@ class WATGenerator {
 				return `(if (i32.eqz ${condArg}) (then (return_call $${targetFn.wasmName})))`;
 
 			case "OUT_INT":
+			case "OUT_CHAR":
+			case "OUT_BOOL":
 				const outArg = this.translateIrArgument(line.args[0], "source");
 				return `(call $${line.opcode.toLowerCase()} ${outArg})`;
+
+			case "OUT_FLOAT":
+				const floatOutArg = this.translateIrArgument(line.args[0], "source");
+				return `(call $out_float (f32.reinterpret_i32 ${floatOutArg}))`;
+
+			case "FNEG":
+				const negArg = this.translateIrArgument(line.args[0], "source");
+				const negDest = this.translateIrArgument(line.args[1], "destination");
+				return `(${negDest} (i32.reinterpret_f32 (f32.neg (f32.reinterpret_i32 ${negArg}))))`;
+
+			case "NEG":
+				const intNegArg = this.translateIrArgument(line.args[0], "source");
+				const intNegDest = this.translateIrArgument(line.args[1], "destination");
+				return `(${intNegDest} (i32.sub (i32.const 0) ${intNegArg}))`;
+
+			case "NOT":
+				const notArg = this.translateIrArgument(line.args[0], "source");
+				const notDest = this.translateIrArgument(line.args[1], "destination");
+				return `(${notDest} (i32.xor ${notArg} (i32.const -1)))`;
+
+			case "INT_TO_FLOAT":
+				const intArg = this.translateIrArgument(line.args[0], "source");
+				const floatDest = this.translateIrArgument(line.args[1], "destination");
+				return `(${floatDest} (i32.reinterpret_f32 (f32.convert_i32_s ${intArg})))`;
+
+			case "FLOAT_TO_INT":
+				const floatArg = this.translateIrArgument(line.args[0], "source");
+				const intDest = this.translateIrArgument(line.args[1], "destination");
+				return `(${intDest} (i32.trunc_f32_s (f32.reinterpret_i32 ${floatArg})))`;
 
 			case "HALT":
 				return `return`;
 		}
 
-		// const opAsThree
 		if (opIsThreeArg(line.opcode)) {
-			const wasmOp = simpleThreeArgMap[line.opcode];
 			const src1 = this.translateIrArgument(line.args[0], "source");
 			const src2 = this.translateIrArgument(line.args[1], "source");
 			const dest = this.translateIrArgument(line.args[2], "destination");
-			return `(${dest} (${wasmOp} ${src1} ${src2}))`;
+			const integerOp = integerThreeArgMap[line.opcode];
+			if (integerOp) return `(${dest} (${integerOp} ${src1} ${src2}))`;
+
+			const floatSrc1 = `(f32.reinterpret_i32 ${src1})`;
+			const floatSrc2 = `(f32.reinterpret_i32 ${src2})`;
+			const floatOp = floatArithmeticMap[line.opcode];
+			if (floatOp) return `(${dest} (i32.reinterpret_f32 (${floatOp} ${floatSrc1} ${floatSrc2})))`;
+
+			const floatComparisonOp = floatComparisonMap[line.opcode];
+			if (floatComparisonOp) return `(${dest} (${floatComparisonOp} ${floatSrc1} ${floatSrc2}))`;
+
+			if (line.opcode == "LOGIC_AND" || line.opcode == "LOGIC_OR") {
+				const logicalOp = line.opcode == "LOGIC_AND" ? "i32.and" : "i32.or";
+				return `(${dest} (${logicalOp} (i32.ne ${src1} (i32.const 0)) (i32.ne ${src2} (i32.const 0))))`;
+			}
 		}
 
 		throw new Error(`Unsupported IR opcode ${line.opcode} in WATGenerator`);
@@ -314,26 +371,75 @@ class WATGenerator {
 	}
 }
 
-class WasmRunner {
-	constructor(private readonly wasmPath: string) {}
+class WasmRunner extends IProgramRunner {
+	private output: number[] = [];
+	constructor(
+		private readonly program: IRProgram,
+		private readonly silent: boolean
+	) {
+		super(program, silent);
+	}
 
-	public async run() {
-		const wasmBuffer = fs.readFileSync(this.wasmPath);
+	private getTempPath() {
+		const tempFolder = path.join(process.cwd(), "..", "temp");
+		if (!fs.existsSync(tempFolder)) fs.mkdirSync(tempFolder);
+		const tempPathBase = path.join(tempFolder, `wasm_${Date.now()}`);
+
+		return tempPathBase;
+	}
+
+	public async execute() {
+		const watGenerator = new WATGenerator(this.program);
+		const watOutput = watGenerator.generate();
+
+		const tempPathBase = this.getTempPath();
+		fs.writeFileSync(`${tempPathBase}.wat`, watOutput);
+		WATGenerator.compileToWasm(`${tempPathBase}.wat`, `${tempPathBase}.wasm`);
+
+		const wasmBuffer = fs.readFileSync(`${tempPathBase}.wasm`);
 
 		const module = await WebAssembly.instantiate(wasmBuffer, {
 			env: {
-				out_int: (value: number) => console.log(`WASM OUT: ${value}`),
-				out_char: (value: number) => console.log(`WASM OUT: ${String.fromCharCode(value)}`),
-				out_bool: (value: number) => console.log(`WASM OUT: ${value != 0}`),
-				out_float: (value: number) => console.log(`WASM OUT: ${value.toFixed(4)}`)
+				out_int: (value: number) => this.logValue(value, "int"),
+				out_char: (value: number) => this.logValue(value, "char"),
+				out_bool: (value: number) => this.logValue(value, "bool"),
+				out_float: (value: number) => this.logValue(value, "float")
 			}
 		});
 
 		const entrypoint = module.instance.exports.main as Function;
 		const memory = module.instance.exports.memory as WebAssembly.Memory;
-		console.log(`WASM Memory Size: ${memory.buffer.byteLength} bytes`);
 
 		entrypoint();
+
+		fs.unlinkSync(`${tempPathBase}.wat`);
+		fs.unlinkSync(`${tempPathBase}.wasm`);
+
+		return {
+			outputs: this.output,
+			ticks: 0
+		};
+	}
+
+	private logValue(value: number, type: "int" | "char" | "bool" | "float") {
+		if (!this.silent) {
+			switch (type) {
+				case "int":
+					console.log(`WASM OUT: ${value}`);
+					break;
+				case "char":
+					console.log(`WASM OUT: ${String.fromCharCode(value)}`);
+					break;
+				case "bool":
+					console.log(`WASM OUT: ${value != 0}`);
+					break;
+				case "float":
+					console.log(`WASM OUT: ${value.toFixed(4)}`);
+					break;
+			}
+		}
+
+		this.output.push(value);
 	}
 }
 
