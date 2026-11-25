@@ -1,0 +1,20 @@
+fn main(): void {
+	// EXPECT: 7
+	out Float(7);
+	// EXPECT: -2
+	out Float(-2);
+	// EXPECT: 1
+	out Float(5) == 5.0;
+
+	// EXPECT: 3
+	out Int(3.9);
+	// EXPECT: -3
+	out Int(-3.9);
+	// EXPECT: 0
+	out Int(-0.9);
+
+	// EXPECT: 42
+	out Int(Float(42));
+	// EXPECT: 5
+	out Int(2.0 + Float(3));
+}

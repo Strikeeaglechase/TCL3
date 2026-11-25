@@ -5,7 +5,7 @@ import { imm, reg } from "../ir/irBuilder.js";
 import { ASTType, ASTTypeRef, FunctionCall, FunctionTypeRef } from "../parser/ast.js";
 import { Token, TokenType } from "../parser/tokenizer.js";
 import { Compiler } from "./compiler.js";
-import { primitiveSizeMap, PrimitiveTypeName, ptrOf, rawTypeOf, typeToStr } from "./types.js";
+import { floatType, intType, primitiveSizeMap, PrimitiveTypeName, ptrOf, typeToStr, voidType } from "./types.js";
 import { IType } from "./userTypes.js";
 
 class BuiltInFunction implements IType {
@@ -56,8 +56,8 @@ class BuiltInFunction implements IType {
 
 const malloc = new BuiltInFunction(
 	"malloc", //
-	[{ name: "size", type: rawTypeOf("int") }],
-	ptrOf(rawTypeOf("void")),
+	[{ name: "size", type: intType() }],
+	ptrOf(voidType()),
 	function (this: Compiler, call: FunctionCall) {
 		if (call.arguments.length != 1) throw new Error(`malloc expects 1 argument, got ${call.arguments.length}`);
 
@@ -70,8 +70,8 @@ const malloc = new BuiltInFunction(
 
 const sizeof = new BuiltInFunction(
 	"sizeof", //
-	[{ name: "type", type: rawTypeOf("void") }],
-	rawTypeOf("int"),
+	[{ name: "type", type: voidType() }],
+	intType(),
 	function (this: Compiler, call: FunctionCall) {
 		if (call.arguments.length != 1) throw new Error(`sizeof expects 1 argument, got ${call.arguments.length}`);
 		if (call.arguments[0].type != ASTType.Reference) throw new Error(`sizeof expects a reference as its argument, got ${call.arguments[0].type}`);
@@ -97,6 +97,28 @@ const sizeof = new BuiltInFunction(
 	}
 );
 
-const builtInFunctions: BuiltInFunction[] = [malloc, sizeof];
+const floatToInt = new BuiltInFunction(
+	"Int", //
+	[{ name: "value", type: floatType() }],
+	intType(),
+	function (this: Compiler, call: FunctionCall) {
+		this.compileAst(call.arguments[0]);
+		this.builder.pop(reg(Register.r0));
+		this.builder.floatToInt(reg(Register.r0), reg(Register.funcRet));
+	}
+);
+
+const intToFloat = new BuiltInFunction(
+	"Float", //
+	[{ name: "value", type: intType() }],
+	floatType(),
+	function (this: Compiler, call: FunctionCall) {
+		this.compileAst(call.arguments[0]);
+		this.builder.pop(reg(Register.r0));
+		this.builder.intToFloat(reg(Register.r0), reg(Register.funcRet));
+	}
+);
+
+const builtInFunctions: BuiltInFunction[] = [malloc, sizeof, floatToInt, intToFloat];
 
 export { BuiltInFunction, builtInFunctions };
