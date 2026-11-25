@@ -38,13 +38,14 @@ const commentStart = "//";
 const identifierStart = /[a-zA-Z_]/;
 const identifierPart = /[a-zA-Z0-9_]/;
 const numberLiteralStartChars = /[0-9.-]/;
-const numberLiteralChars = /[0-9.]/;
+const numberLiteralChars = /[0-9.f]/;
 const mainFnName = "main";
 
 enum TokenType {
 	Symbol = "symbol",
 	Keyword = "keyword",
-	LiteralNumber = "literalNumber",
+	LiteralInt = "literalInt",
+	LiteralFloat = "literalFloat",
 	LiteralString = "literalString",
 	LiteralChar = "literalChar",
 	LiteralBool = "literalBool",
@@ -211,7 +212,12 @@ class Tokenizer {
 
 	private processNumberLiteral(char: string) {
 		const numberLiteral = char + this.charStream.readUntil(c => !numberLiteralChars.test(c)).join("");
-		return { type: TokenType.LiteralNumber, value: numberLiteral };
+		if (numberLiteral.includes(".") || numberLiteral.endsWith("f")) {
+			const numLitNoF = numberLiteral.replace("f", "");
+			return { type: TokenType.LiteralFloat, value: numLitNoF };
+		}
+
+		return { type: TokenType.LiteralInt, value: numberLiteral };
 	}
 
 	private processOperand(charOrPair: string) {

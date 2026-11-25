@@ -127,7 +127,8 @@ class Parser {
 					return this.attachLocation(this.parseOperator(token, allowBinaryExpression), startIndex);
 				case TokenType.Symbol:
 					return this.attachLocation(this.parseSymbol(token.value, allowBinaryExpression), startIndex);
-				case TokenType.LiteralNumber:
+				case TokenType.LiteralInt:
+				case TokenType.LiteralFloat:
 				case TokenType.LiteralString:
 				case TokenType.LiteralChar:
 				case TokenType.LiteralBool:
@@ -368,7 +369,7 @@ class Parser {
 			let variantValue: number;
 
 			if (this.tokenStream.maybeConsumeTV(TokenType.Symbol, ":")) {
-				const valueToken = this.tokenStream.consumeType(TokenType.LiteralNumber);
+				const valueToken = this.tokenStream.consumeType(TokenType.LiteralInt);
 				variantValue = parseInt(valueToken.value);
 				currentValue = variantValue + 1; // Update currentValue for the next variant
 			} else {

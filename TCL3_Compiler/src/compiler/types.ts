@@ -64,6 +64,10 @@ const intType = (): RawTypeRef => {
 	return rawTypeOf("int");
 };
 
+const floatType = (): RawTypeRef => {
+	return rawTypeOf("float");
+};
+
 const errorType = (): RawTypeRef => {
 	return {
 		type: ASTType.RawTypeRef,
@@ -93,6 +97,7 @@ export {
 	typeToStr,
 	rawTypeOf,
 	intType,
+	floatType,
 	charType,
 	boolType,
 	voidType,

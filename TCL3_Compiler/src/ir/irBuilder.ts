@@ -1,6 +1,8 @@
+import { float32ToBits } from "./float32.js";
 import { IRArgument, IRArgumentType, IRCodeLine, IRCommentLine, IRLabelLine, IROpCode, IRProgram, Register } from "./ir.js";
 
 const imm = (value: number) => new IRArgument(IRArgumentType.IMM, value.toString());
+const fimm = (value: number) => imm(float32ToBits(value));
 const reg = (register: Register) => new IRArgument(IRArgumentType.REG, register);
 const mem = (address: number) => new IRArgument(IRArgumentType.MEM, address.toString());
 const memReg = (register: Register, size: number, offset?: number) => new IRArgument(IRArgumentType.MEM_REG, register, size, offset);
@@ -11,7 +13,9 @@ const label = (label: string) => {
 	return new IRArgument(IRArgumentType.LABEL, label);
 };
 
-const simpleThreeArgInstructions = [
+const floatThreeArgInstructions = ["FADD", "FSUB", "FMUL", "FDIV", "FMOD", "FEQ", "FNEQ", "FGT", "FGTE"] satisfies readonly IROpCode[];
+
+const threeArgInstructions = [
 	"ADD",
 	"SUB",
 	"MUL",
@@ -27,7 +31,8 @@ const simpleThreeArgInstructions = [
 	"XOR",
 	"SHL",
 	"SHR",
-	"MOD"
+	"MOD",
+	...floatThreeArgInstructions
 ] satisfies readonly IROpCode[];
 
 const INT_SIZE = 4;
@@ -64,6 +69,18 @@ class _IRBuilder implements IStringProvider {
 
 	public neg(value: IRArgument, result: IRArgument) {
 		this.instruct(`NEG`, value, result);
+	}
+
+	public fneg(value: IRArgument, result: IRArgument) {
+		this.instruct("FNEG", value, result);
+	}
+
+	public intToFloat(value: IRArgument, result: IRArgument) {
+		this.instruct("INT_TO_FLOAT", value, result);
+	}
+
+	public floatToInt(value: IRArgument, result: IRArgument) {
+		this.instruct("FLOAT_TO_INT", value, result);
 	}
 
 	public malloc(size: IRArgument, addressResult: IRArgument) {
@@ -168,13 +185,13 @@ class _IRBuilder implements IStringProvider {
 	}
 }
 
-type ThreeArgInstructions = Record<Lowercase<(typeof simpleThreeArgInstructions)[number]>, (a: IRArgument, b: IRArgument, result: IRArgument) => void>;
+type ThreeArgInstructions = Record<Lowercase<(typeof threeArgInstructions)[number]>, (a: IRArgument, b: IRArgument, result: IRArgument) => void>;
 type MathInstructionsConstructor = new (...args: any[]) => ThreeArgInstructions;
 type IRBuilderType = typeof _IRBuilder & MathInstructionsConstructor;
 
 function createIrBuilderClass(): IRBuilderType {
 	const methods: ThreeArgInstructions = {} as ThreeArgInstructions;
-	simpleThreeArgInstructions.forEach(opcode => {
+	threeArgInstructions.forEach(opcode => {
 		const methodName = opcode.toLowerCase() as Lowercase<typeof opcode>;
 		methods[methodName] = function (this: _IRBuilder, a: IRArgument, b: IRArgument, result: IRArgument) {
 			this.instruct(opcode, a, b, result);
@@ -189,4 +206,20 @@ function createIrBuilderClass(): IRBuilderType {
 const IRBuilder = createIrBuilderClass();
 type IRBuilder = InstanceType<typeof IRBuilder>;
 
-export { IRBuilder, imm, reg, mem, memReg, str, nopArg, label, INT_SIZE, PTR_SIZE, ThreeArgInstructions, IStringProvider, simpleThreeArgInstructions };
+export {
+	IRBuilder,
+	imm,
+	fimm,
+	reg,
+	mem,
+	memReg,
+	str,
+	nopArg,
+	label,
+	INT_SIZE,
+	PTR_SIZE,
+	ThreeArgInstructions,
+	IStringProvider,
+	threeArgInstructions,
+	floatThreeArgInstructions
+};

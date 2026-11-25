@@ -1,30 +1,10 @@
 import { IRArgument, IRArgumentType, IRCodeLine, IRLabelLine, IROpCode, IRProgram, Register } from "./ir/ir.js";
 import { INT_SIZE } from "./ir/irBuilder.js";
+import { bitsToFloat32, float32ToBits } from "./ir/float32.js";
 
 const memSize = 1024 * 64; // 64KB
 
-const floatAddresses = new Set<number>();
 function write(mem: number[], address: number, value: number, size: number) {
-	// What im about to do im not proud of, but this is javascripts fault
-	// in a proper language id just get to write the nice raw bits, call it good
-	// but because js, I have to guess if its an int or a float
-
-	if (size === 4 && !Number.isInteger(value)) {
-		const floatArray = new Float32Array(1);
-		floatArray[0] = value;
-		const intArray = new Uint8Array(floatArray.buffer);
-
-		for (let i = 0; i < size; i++) {
-			mem[address + i] = intArray[i];
-		}
-
-		floatAddresses.add(address);
-
-		return;
-	}
-
-	floatAddresses.delete(address);
-
 	for (let i = 0; i < size; i++) {
 		const byte = (value >> (i * 8)) & 0xff;
 		mem[address + i] = byte;
@@ -32,16 +12,6 @@ function write(mem: number[], address: number, value: number, size: number) {
 }
 
 function read(mem: number[], address: number, size: number): number {
-	if (floatAddresses.has(address) && size == 4) {
-		const intArray = new Uint8Array(size);
-		for (let i = 0; i < size; i++) {
-			intArray[i] = mem[address + i];
-		}
-
-		const floatArray = new Float32Array(intArray.buffer);
-		return floatArray[0];
-	}
-
 	let value = 0;
 	for (let i = 0; i < size; i++) {
 		value |= (mem[address + i] & 0xff) << (i * 8);
@@ -160,6 +130,69 @@ class Emulator {
 				this.setValue(args[2], quotient);
 				break;
 
+			case "FADD":
+				const floatSum = this.getFloatValue(args[0]) + this.getFloatValue(args[1]);
+				this.setFloatValue(args[2], floatSum);
+				break;
+
+			case "FSUB":
+				const floatDiff = this.getFloatValue(args[0]) - this.getFloatValue(args[1]);
+				this.setFloatValue(args[2], floatDiff);
+				break;
+
+			case "FMUL":
+				const floatProd = this.getFloatValue(args[0]) * this.getFloatValue(args[1]);
+				this.setFloatValue(args[2], floatProd);
+				break;
+
+			case "FDIV":
+				const floatQuotient = this.getFloatValue(args[0]) / this.getFloatValue(args[1]);
+				this.setFloatValue(args[2], floatQuotient);
+				break;
+
+			case "FMOD":
+				const floatRemainder = this.getFloatValue(args[0]) % this.getFloatValue(args[1]);
+				this.setFloatValue(args[2], floatRemainder);
+				break;
+
+			case "FEQ":
+				const floatEqResult = this.getFloatValue(args[0]) === this.getFloatValue(args[1]) ? 1 : 0;
+				this.setValue(args[2], floatEqResult);
+				break;
+
+			case "FNEQ":
+				const floatNeqResult = this.getFloatValue(args[0]) !== this.getFloatValue(args[1]) ? 1 : 0;
+				this.setValue(args[2], floatNeqResult);
+				break;
+
+			case "FGT":
+				const floatGtResult = this.getFloatValue(args[0]) > this.getFloatValue(args[1]) ? 1 : 0;
+				this.setValue(args[2], floatGtResult);
+				break;
+
+			case "FGTE":
+				const floatGteResult = this.getFloatValue(args[0]) >= this.getFloatValue(args[1]) ? 1 : 0;
+				this.setValue(args[2], floatGteResult);
+				break;
+
+			case "FNEG":
+				const negFloatResult = -this.getFloatValue(args[0]);
+				this.setFloatValue(args[1], negFloatResult);
+				break;
+
+			case "INT_TO_FLOAT":
+				this.setFloatValue(args[1], this.getValue(args[0]) | 0);
+				break;
+
+			case "FLOAT_TO_INT": {
+				const value = this.getFloatValue(args[0]);
+				if (!Number.isFinite(value) || value < -2147483648 || value >= 2147483648) {
+					throw new Error(`Cannot convert float ${value} to signed 32-bit int`);
+				}
+				this.setValue(args[1], Math.trunc(value) | 0);
+				break;
+			}
+
 			case "EQ":
 				const eqResult = this.getValue(args[0]) == this.getValue(args[1]) ? 1 : 0;
 				this.setValue(args[2], eqResult);
@@ -264,7 +297,7 @@ class Emulator {
 				break;
 
 			case "OUT_FLOAT":
-				const floatValue = this.getValue(args[0]);
+				const floatValue = this.getFloatValue(args[0]);
 				if (!this.silent) console.log(`OUT: ${floatValue.toFixed(4)}`);
 				this.outputs.push(floatValue);
 				break;
@@ -330,6 +363,10 @@ class Emulator {
 		}
 	}
 
+	private setFloatValue(arg: IRArgument, value: number) {
+		this.setValue(arg, float32ToBits(value));
+	}
+
 	private getValue(arg: IRArgument): number {
 		switch (arg.type) {
 			case IRArgumentType.IMM:
@@ -357,6 +394,10 @@ class Emulator {
 			default:
 				throw new Error(`Unsupported argument type: ${arg.type}`);
 		}
+	}
+
+	private getFloatValue(arg: IRArgument): number {
+		return bitsToFloat32(this.getValue(arg));
 	}
 }
 

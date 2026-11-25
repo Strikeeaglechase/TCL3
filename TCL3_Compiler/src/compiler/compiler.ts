@@ -35,7 +35,20 @@ import { walk } from "../parser/walker.js";
 import { BuiltInFunction, builtInFunctions } from "./builtInFunctions.js";
 import { BuiltInTypeRefDetailInformation, FunctionListDetailInformation, TokenDetailInfo, VariableDetailInformation } from "./detail.js";
 import { FunctionContext } from "./functionContext.js";
-import { boolType, charType, errorType, intType, isPrimitiveTypeName, primitiveSizeMap, ptrOf, typeToStr, voidType } from "./types.js";
+import {
+	boolType,
+	charType,
+	errorType,
+	floatType,
+	intType,
+	isPrimitiveTypeName,
+	primitiveSizeMap,
+	PrimitiveTypeName,
+	primitiveTypeNames,
+	ptrOf,
+	typeToStr,
+	voidType
+} from "./types.js";
 import { Enum, Struct } from "./userTypes.js";
 
 function referenceToString(ref: Reference, useTokenValues = false): string {
@@ -912,7 +925,8 @@ class Compiler {
 
 	private handleLiteral(node: Literal) {
 		switch (node.literalType) {
-			case TokenType.LiteralNumber:
+			case TokenType.LiteralInt:
+			case TokenType.LiteralFloat:
 			case TokenType.LiteralBool:
 			case TokenType.LiteralChar:
 				this.builder.push(imm(parseFloat(node.value)));
@@ -933,11 +947,11 @@ class Compiler {
 		if (leftType == null || rightType == null) {
 			return BinaryExpressionTypeEvalResult.failed();
 		} else {
-			if (!this.isEffectivelyIntType(leftType) || !this.isEffectivelyIntType(rightType)) {
+			if (!this.isEffectivelyNumberType(leftType) || !this.isEffectivelyNumberType(rightType)) {
 				// Find type overload for operator
 				const commutativeOperators = ["+", "*", "==", "!=", "&", "|", "^"];
 				// Ensure that if there's an int op here, it's not the left hand side, as we will expect fn type sigs to be of Fn<struct, int, ret>
-				const needsSwap = this.isEffectivelyIntType(leftType) && commutativeOperators.includes(node.operator);
+				const needsSwap = this.isEffectivelyNumberType(leftType) && commutativeOperators.includes(node.operator);
 
 				const opArgs = needsSwap ? [rightType, leftType] : [leftType, rightType];
 				const finalLeftType = needsSwap ? rightType : leftType;
@@ -1094,8 +1108,10 @@ class Compiler {
 		switch (expression.type) {
 			case ASTType.Literal:
 				switch (expression.literalType) {
-					case TokenType.LiteralNumber:
+					case TokenType.LiteralInt:
 						return intType();
+					case TokenType.LiteralFloat:
+						return floatType();
 					case TokenType.LiteralBool:
 						return boolType();
 					case TokenType.LiteralChar:
@@ -1314,9 +1330,9 @@ class Compiler {
 		return false;
 	}
 
-	private isEffectivelyIntType(type: ASTTypeRef): boolean {
+	private isEffectivelyNumberType(type: ASTTypeRef): boolean {
 		if (type.type != ASTType.RawTypeRef) return false;
-		if (type.rawType == "int" || type.rawType == "char" || type.rawType == "bool") return true;
+		if (primitiveTypeNames.includes(type.rawType as PrimitiveTypeName)) return true;
 
 		if (this.enums.has(type.rawType)) return true; // Enums are effectively ints
 
