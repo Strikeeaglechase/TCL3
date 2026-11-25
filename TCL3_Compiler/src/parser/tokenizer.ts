@@ -7,6 +7,7 @@ const operands = ["+", "-", "*", "/", "%", "|", "&", "^", "||", "&&", "!", "==",
 const symbols = ["(", ")", "[", "]", "{", "}", ";", ",", ".", "=", ":", "->", "+=", "-=", "*=", "/=", "%=", "|=", "&=", "^="];
 const selfAssignMathOps = ["+=", "-=", "*=", "/=", "%=", "&=", "|=", "^="];
 const resultTypeIsBoolOperands = ["==", "!=", "<", ">", "<=", ">=", "&&", "||"];
+const validFloatOps = ["+", "-", "*", "/", "%", "==", "!=", "<", "<=", ">", ">=", "&&", "||"];
 
 const operandPrecedence: Record<string, number> = {
 	"!": 1,
@@ -330,5 +331,6 @@ export {
 	preprocessorDirectiveStart,
 	mainFnName,
 	keywords,
-	topLevelKeywords
+	topLevelKeywords,
+	validFloatOps
 };

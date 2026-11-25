@@ -1,0 +1,51 @@
+fn main(): void {
+	let x: float = 1.5;
+	let y: float = 2.0;
+
+	// EXPECT: 1
+	out (x + y) == 3.5;
+	// EXPECT: 1
+	out (y - x) == 0.5;
+	// EXPECT: 1
+	out (x * y) == 3.0;
+	// EXPECT: 1
+	out (3.0 / y) == 1.5;
+	// EXPECT: 1
+	out (5.5 % y) == 1.5;
+
+	// EXPECT: 0
+	out x == y;
+	// EXPECT: 1
+	out x != y;
+	// EXPECT: 1
+	out x < y;
+	// EXPECT: 1
+	out x <= y;
+	// EXPECT: 1
+	out y > x;
+	// EXPECT: 1
+	out y >= x;
+
+	// EXPECT: 1
+	out -x == -1.5;
+	// EXPECT: 1
+	out !-0.0;
+	// EXPECT: 1
+	out 0.0 || y;
+	// EXPECT: 0
+	out -0.0 && y;
+
+	// EXPECT: 7
+	if (-0.0) out 99;
+	else out 7;
+
+	while (x < y) x = x + 0.25;
+	// EXPECT: 1
+	out x == y;
+
+	// Casts retain their source bits.
+	// EXPECT: 1
+	out (<float>1065353216) == 1.0;
+	// EXPECT: 1065353216
+	out <int>1.0;
+}

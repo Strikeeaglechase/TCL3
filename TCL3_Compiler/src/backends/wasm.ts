@@ -2,7 +2,7 @@ import { execSync } from "child_process";
 import fs from "fs";
 
 import { IRArgument, IRArgumentType, IRCodeLine, IRLabelLine, IRProgram, Register } from "../ir/ir.js";
-import { simpleThreeArgInstructions } from "../ir/irBuilder.js";
+import { threeArgInstructions } from "../ir/irBuilder.js";
 
 interface IRFnBlock {
 	name: string;
@@ -25,8 +25,8 @@ const storeTypeMap = {
 	1: "store8"
 };
 
-type ThreeArgInstruction = (typeof simpleThreeArgInstructions)[number];
-const simpleThreeArgMap: Record<ThreeArgInstruction, string> = {
+type ThreeArgInstruction = (typeof threeArgInstructions)[number];
+const simpleThreeArgMap: Partial<Record<ThreeArgInstruction, string>> = {
 	ADD: "i32.add",
 	SUB: "i32.sub",
 	MUL: "i32.mul",
@@ -46,7 +46,7 @@ const simpleThreeArgMap: Record<ThreeArgInstruction, string> = {
 };
 
 function opIsThreeArg(op: string): op is ThreeArgInstruction {
-	return simpleThreeArgInstructions.includes(op as ThreeArgInstruction) && simpleThreeArgMap[op as ThreeArgInstruction] != null;
+	return threeArgInstructions.includes(op as ThreeArgInstruction) && simpleThreeArgMap[op as ThreeArgInstruction] != null;
 }
 
 const isPc = (arg: IRArgument) => arg.type == IRArgumentType.REG && arg.value == Register.pc;

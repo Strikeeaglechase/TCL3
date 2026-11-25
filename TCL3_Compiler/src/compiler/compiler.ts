@@ -1,6 +1,6 @@
 import { CompilerError, SourceSpan } from "../errors.js";
 import { IRArgument, Register } from "../ir/ir.js";
-import { imm, INT_SIZE, IRBuilder, label, memReg, PTR_SIZE, reg, str, ThreeArgInstructions } from "../ir/irBuilder.js";
+import { fimm, imm, INT_SIZE, IRBuilder, label, memReg, PTR_SIZE, reg, str, ThreeArgInstructions } from "../ir/irBuilder.js";
 import {
 	Assignment,
 	AST,
@@ -30,7 +30,7 @@ import {
 	WhileLoop,
 	WrappedTypeRef
 } from "../parser/ast.js";
-import { mainFnName, resultTypeIsBoolOperands, Token, TokenType } from "../parser/tokenizer.js";
+import { mainFnName, resultTypeIsBoolOperands, Token, TokenType, validFloatOps } from "../parser/tokenizer.js";
 import { walk } from "../parser/walker.js";
 import { BuiltInFunction, builtInFunctions } from "./builtInFunctions.js";
 import { BuiltInTypeRefDetailInformation, FunctionListDetailInformation, TokenDetailInfo, VariableDetailInformation } from "./detail.js";
@@ -376,6 +376,13 @@ class Compiler {
 		this.builder.jump(label(this.breakLabel));
 	}
 
+	private compileConditionToRegister(condition: AST, register: Register) {
+		const useFloat = this.isFloatType(this.inferTypeFrom(condition));
+		this.compileAst(condition);
+		this.builder.pop(reg(register));
+		if (useFloat) this.builder.fneq(reg(Register.r0), fimm(0), reg(Register.r0));
+	}
+
 	private handleForLoop(node: ForLoop) {
 		this.compileAst(node.initializer);
 		const loopTopLabel = `for_loop_top_${id++}`;
@@ -386,8 +393,7 @@ class Compiler {
 		this.breakLabelStack.push(loopEndLabel);
 
 		this.builder.addLabel(loopTopLabel);
-		this.compileAst(node.condition);
-		this.builder.pop(reg(Register.r0));
+		this.compileConditionToRegister(node.condition, Register.r0);
 		this.builder.jumpIfFalse(reg(Register.r0), label(loopEndLabel));
 
 		node.body.forEach(bodyNode => this.compileAst(bodyNode));
@@ -405,8 +411,7 @@ class Compiler {
 		const thenBodyEnd = `if_then_end_${id++}`;
 		const ifEnd = node.elseBody || node.elseIfs.length > 0 ? `if_end_${id++}` : null;
 
-		this.compileAst(node.condition);
-		this.builder.pop(reg(Register.r0));
+		this.compileConditionToRegister(node.condition, Register.r0);
 		this.builder.jumpIfFalse(reg(Register.r0), label(thenBodyEnd));
 		node.thenBody.forEach(bodyNode => this.compileAst(bodyNode));
 		if (ifEnd) this.builder.jump(label(ifEnd));
@@ -415,8 +420,7 @@ class Compiler {
 		node.elseIfs.forEach(elseIf => {
 			const elifEnd = `elif_end_${id++}`;
 
-			this.compileAst(elseIf.condition);
-			this.builder.pop(reg(Register.r0));
+			this.compileConditionToRegister(elseIf.condition, Register.r0);
 			this.builder.jumpIfFalse(reg(Register.r0), label(elifEnd));
 
 			elseIf.body.forEach(bodyNode => this.compileAst(bodyNode));
@@ -438,8 +442,7 @@ class Compiler {
 
 		this.builder.addLabel(loopTopLabel);
 
-		this.compileAst(node.condition);
-		this.builder.pop(reg(Register.r0));
+		this.compileConditionToRegister(node.condition, Register.r0);
 		this.builder.jumpIfFalse(reg(Register.r0), label(loopEndLabel));
 
 		node.body.forEach(bodyNode => this.compileAst(bodyNode));
@@ -926,10 +929,12 @@ class Compiler {
 	private handleLiteral(node: Literal) {
 		switch (node.literalType) {
 			case TokenType.LiteralInt:
-			case TokenType.LiteralFloat:
 			case TokenType.LiteralBool:
 			case TokenType.LiteralChar:
-				this.builder.push(imm(parseFloat(node.value)));
+				this.builder.push(imm(parseInt(node.value)));
+				break;
+			case TokenType.LiteralFloat:
+				this.builder.push(fimm(parseFloat(node.value)));
 				break;
 			case TokenType.LiteralString:
 				const innerStrValue = node.value; // Remove quotes
@@ -980,6 +985,25 @@ class Compiler {
 		return BinaryExpressionTypeEvalResult.notOpOverload();
 	}
 
+	private isFloatType(type: ASTTypeRef): boolean {
+		return type?.type == ASTType.RawTypeRef && type.rawType == "float";
+	}
+
+	private isFloatBinaryExpression(node: BinaryExpression): boolean {
+		const leftType = this.inferTypeFrom(node.left);
+		const rightType = this.inferTypeFrom(node.right);
+		const leftIsFloat = this.isFloatType(leftType);
+		const rightIsFloat = this.isFloatType(rightType);
+		if (!leftIsFloat && !rightIsFloat) return false;
+		if (!leftIsFloat || !rightIsFloat) {
+			throw new Error(`Operator '${node.operator}' requires matching numeric types, got '${typeToStr(leftType)}' and '${typeToStr(rightType)}'.`);
+		}
+		if (!validFloatOps.includes(node.operator)) {
+			throw new Error(`Operator '${node.operator}' is not supported for float operands.`);
+		}
+		return true;
+	}
+
 	private handleBinaryExpression(binaryExpr: BinaryExpression) {
 		const overloadResult = this.getMethodForOverloadedBinaryExpression(binaryExpr);
 		if (overloadResult.isOpOverload) {
@@ -995,11 +1019,16 @@ class Compiler {
 			this.callMethod(struct, method.name, call, binaryExpr.operatorToken, call.reference);
 			return;
 		}
+		const useFloat = this.isFloatBinaryExpression(binaryExpr);
 
 		this.compileAst(binaryExpr.left);
 		this.compileAst(binaryExpr.right);
 		this.builder.pop(reg(Register.r1));
 		this.builder.pop(reg(Register.r0));
+		if (useFloat && (binaryExpr.operator == "&&" || binaryExpr.operator == "||")) {
+			this.builder.fneq(reg(Register.r0), fimm(0), reg(Register.r0));
+			this.builder.fneq(reg(Register.r1), fimm(0), reg(Register.r1));
+		}
 
 		const operatorMap: Record<string, keyof ThreeArgInstructions> = {
 			"+": "add",
@@ -1019,19 +1048,35 @@ class Compiler {
 			"||": "logic_or",
 			"%": "mod"
 		};
+		const floatOperatorMap: Record<string, keyof ThreeArgInstructions> = {
+			"+": "fadd",
+			"-": "fsub",
+			"*": "fmul",
+			"/": "fdiv",
+			"%": "fmod",
+			"==": "feq",
+			"!=": "fneq",
+			">": "fgt",
+			">=": "fgte",
+			"&&": "logic_and",
+			"||": "logic_or"
+		};
+		const selectedOperator = (useFloat ? floatOperatorMap : operatorMap)[binaryExpr.operator];
 
-		if (operatorMap[binaryExpr.operator]) {
-			this.builder[operatorMap[binaryExpr.operator]](reg(Register.r0), reg(Register.r1), reg(Register.r0));
+		if (selectedOperator) {
+			this.builder[selectedOperator](reg(Register.r0), reg(Register.r1), reg(Register.r0));
 			this.builder.push(reg(Register.r0));
 			return;
 		}
 
 		switch (binaryExpr.operator) {
 			case "<":
-				this.builder.gt(reg(Register.r1), reg(Register.r0), reg(Register.r0));
+				if (useFloat) this.builder.fgt(reg(Register.r1), reg(Register.r0), reg(Register.r0));
+				else this.builder.gt(reg(Register.r1), reg(Register.r0), reg(Register.r0));
 				break;
 			case "<=":
-				this.builder.gte(reg(Register.r1), reg(Register.r0), reg(Register.r0));
+				if (useFloat) this.builder.fgte(reg(Register.r1), reg(Register.r0), reg(Register.r0));
+				else this.builder.gte(reg(Register.r1), reg(Register.r0), reg(Register.r0));
 				break;
 			default:
 				throw new Error(`Unsupported binary operator: ${binaryExpr.operatorToken.value}`);
@@ -1041,16 +1086,20 @@ class Compiler {
 	}
 
 	private handleUnaryExpression(node: UnaryExpression) {
+		const useFloat = this.isFloatType(this.inferTypeFrom(node.operand));
+		if (useFloat && node.operator == "~") throw new Error(`Operator '~' is not supported for float operands.`);
 		this.compileAst(node.operand);
 		this.builder.pop(reg(Register.r0));
 
 		switch (node.operator) {
 			case "-":
-				this.builder.neg(reg(Register.r0), reg(Register.r0));
+				if (useFloat) this.builder.fneg(reg(Register.r0), reg(Register.r0));
+				else this.builder.neg(reg(Register.r0), reg(Register.r0));
 				break;
 
 			case "!":
-				this.builder.eq(reg(Register.r0), imm(0), reg(Register.r0));
+				if (useFloat) this.builder.feq(reg(Register.r0), fimm(0), reg(Register.r0));
+				else this.builder.eq(reg(Register.r0), imm(0), reg(Register.r0));
 				break;
 
 			case "~":
@@ -1159,7 +1208,9 @@ class Compiler {
 		const overloadResult = this.getMethodForOverloadedBinaryExpression(node);
 		if (overloadResult.failedToEvaluateType) return null;
 		if (overloadResult.isOpOverload) return overloadResult.method.typeRef.returnType;
+		const useFloat = this.isFloatBinaryExpression(node);
 		if (resultTypeIsBoolOperands.includes(node.operator)) return boolType();
+		if (useFloat) return floatType();
 		return this.inferTypeFrom(node.left);
 	}
 
