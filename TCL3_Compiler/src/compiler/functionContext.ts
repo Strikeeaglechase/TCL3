@@ -64,6 +64,10 @@ class FunctionContext implements IType {
 		this.isStatic = definition.static;
 		this.isLambda = definition.isLambda;
 
+		this.establishPartialType(); // Establish partial such that scanning the body can resolve recursive calls
+	}
+
+	public beginFunction() {
 		this.builder.addLabel(this.label);
 	}
 
@@ -113,7 +117,6 @@ class FunctionContext implements IType {
 	// Forward declares variables, checks return types (and infers if doesn't exist), and establishes the function type
 	public setupTypeInformation() {
 		this.forwardDeclareVariables();
-		this.establishPartialType(); // Establish partial such that scanning the body can resolve recursive calls
 		this.checkOrResolveReturnType();
 		this.establishType(); // Establish concrete type, throws if unable
 	}

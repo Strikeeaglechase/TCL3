@@ -46,7 +46,7 @@ const pushIfDef = <T>(arr: T[], value: T) => {
 
 class Parser {
 	private tokenStream: TypedObjectStream<Token>;
-	private rewrittenNames: Map<string, string> = new Map();
+	protected rewrittenNames: Map<string, string> = new Map();
 	private unitName: string;
 	private enumRawNames: Set<string> = new Set();
 	public parseErrors: ParserError[] = [];
@@ -57,7 +57,8 @@ class Parser {
 		tokens: Token[],
 		private publicSymbols: string[],
 		private fileIdentifier: string,
-		private throwOnError: boolean
+		private throwOnError: boolean,
+		private isSubParser: boolean = false
 	) {
 		this.unitName = fileIdentifier + "_" + id++;
 
@@ -68,6 +69,33 @@ class Parser {
 	}
 
 	public parse(): Program {
+		// TODO: Don't do it like this
+		/*
+		We're going to run two full parsing passes, the first one extracts rewritten symbol names, the specific issue is when we have a setup like:
+		fn a(): void { b(); }
+		fn b(): void {}
+
+		a and b get mangled names, however, the body of A does not yet know that b() needs to be mangled. We need to identify all functions/future mangled names in order to solve this
+		The simplest option for now is to run the parser twice. At some point a function-only parser should be created to specifically fix this issue.
+
+		*/
+
+		/* This almost works, but struct methods need to not be mangled, this alone don't support that
+		for (let i = 0; i < this.tokenStream.data.length - 1; i++) {
+			const token = this.tokenStream.data[i];
+			const nextToken = this.tokenStream.data[i + 1];
+			if (token.type == TokenType.Keyword && token.value == "fn" && nextToken.type == TokenType.Identifier) {
+				console.log(`Found function declaration: ${nextToken.value} at index ${token.start}`);
+			}
+		}
+		*/
+
+		if (!this.isSubParser) {
+			const subParser = new Parser(this.tokenStream.data, this.publicSymbols, this.fileIdentifier, false, true);
+			subParser.parse();
+			this.rewrittenNames = subParser.rewrittenNames;
+		}
+
 		const body: AST[] = [];
 
 		while (!this.tokenStream.eof()) {

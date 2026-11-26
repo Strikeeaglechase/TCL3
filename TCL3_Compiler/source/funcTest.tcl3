@@ -1,6 +1,6 @@
-fn main(): void {
-	let test = 5f;
-	out test;
+#include "./list.tcl3" <int>
 
-	out Int(test);
+fn main(): void {
+	let list = intList.new(5);
+	list.push(5);
 }

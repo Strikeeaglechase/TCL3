@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 
 import { INT_SIZE } from "../ir/irBuilder.js";
-import { ASTType, ASTTypeRef, EnumDeclaration, RawTypeRef, StructDeclaration } from "../parser/ast.js";
+import { ASTType, ASTTypeRef, EnumDeclaration, FunctionDeclaration, RawTypeRef, StructDeclaration } from "../parser/ast.js";
 import { Token } from "../parser/tokenizer.js";
 import { Compiler } from "./compiler.js";
 import { FunctionContext } from "./functionContext.js";
@@ -29,6 +29,7 @@ class Struct implements IType {
 	public readonly refId = uuidv4();
 	public fields: Map<string, StructField> = new Map();
 	public methods: Map<string, FunctionContext[]> = new Map();
+	private methodDeclMap: Map<FunctionDeclaration, FunctionContext> = new Map();
 	public size: number = 0;
 
 	constructor(
@@ -58,17 +59,10 @@ class Struct implements IType {
 		return { type: ASTType.RawTypeRef, rawType: this.name, rawTypeToken: this.nameToken };
 	}
 
-	public buildMethods() {
+	private forwardDeclareMethodSignatures() {
 		this.definition.methods.forEach(method => {
-			let funcCtx: FunctionContext;
-			try {
-				funcCtx = this.compiler.handleFunctionDeclaration(method);
-			} catch (e) {
-				this.compiler.handleError(e, method.location);
-				return;
-			}
-
-			funcCtx.methodForStruct = this;
+			const funcCtx = new FunctionContext(this.compiler, method);
+			this.methodDeclMap.set(method, funcCtx);
 
 			if (!this.methods.has(method.name)) this.methods.set(method.name, []);
 			const fnList = this.methods.get(method.name);
@@ -83,6 +77,22 @@ class Struct implements IType {
 			}
 
 			this.methods.get(method.name).push(funcCtx);
+		});
+	}
+
+	public buildMethods() {
+		this.forwardDeclareMethodSignatures();
+		this.definition.methods.forEach(method => {
+			let funcCtx: FunctionContext;
+			try {
+				const ctx = this.methodDeclMap.get(method);
+				funcCtx = this.compiler.handleFunctionDeclaration(method, ctx);
+			} catch (e) {
+				this.compiler.handleError(e, method.location);
+				return;
+			}
+
+			funcCtx.methodForStruct = this;
 		});
 	}
 

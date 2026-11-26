@@ -119,6 +119,7 @@ class Compiler {
 	public structs: Map<string, Struct> = new Map();
 	public enums: Map<string, Enum> = new Map();
 	public functions: Map<string, FunctionContext[]> = new Map();
+	private functionDeclMap: Map<FunctionDeclaration, FunctionContext> = new Map();
 	private lambdaFunctions: Map<LambdaExpression, FunctionContext> = new Map();
 	private mainLabel: string = mainFnName;
 
@@ -204,6 +205,9 @@ class Compiler {
 		this.builder.move(imm(255), reg(Register.memPtr));
 		this.builder.move(label(this.mainLabel), reg(Register.pc));
 
+		this.forwardDeclareEnums();
+		this.forwardDeclareStructs();
+		this.forwardDeclareFunctionSignatures();
 		this.program.body.forEach(node => {
 			this.compileAst(node);
 		});
@@ -216,6 +220,15 @@ class Compiler {
 	private forwardDeclareFunctionSignatures() {
 		this.program.body.forEach(node => {
 			if (node.type != ASTType.FunctionDeclaration) return;
+
+			const funcCtx = new FunctionContext(this, node);
+			this.functionDeclMap.set(node, funcCtx);
+
+			if (!this.functions.has(node.name)) this.functions.set(node.name, []);
+			const existingTypeSig = this.functions.get(node.name).find(f => this.areTypesEqual(f.typeRef, funcCtx.typeRef, true));
+			if (existingTypeSig) throw new Error(`Function '${node.nameToken.value}' with the same type signature already exists.`);
+
+			this.functions.get(node.name).push(funcCtx);
 		});
 	}
 
@@ -292,7 +305,8 @@ class Compiler {
 				this.handleAssignment(node);
 				break;
 			case ASTType.EnumDeclaration:
-				this.handleEnumDeclaration(node);
+				// Enums got forward declared, don't do anything here
+				// this.handleEnumDeclaration(node);
 				break;
 			case ASTType.UnaryExpression:
 				this.handleUnaryExpression(node);
@@ -1112,18 +1126,33 @@ class Compiler {
 		this.builder.push(reg(Register.r0));
 	}
 
-	private handleStructDeclaration(node: StructDeclaration) {
-		const struct = new Struct(this, node);
-		this.structs.set(node.name, struct);
+	private forwardDeclareEnums() {
+		this.program.body.forEach(node => {
+			if (node.type != ASTType.EnumDeclaration) return;
 
-		this.registerDetail(node.nameToken, struct);
-		node.fields.forEach(field => {
-			this.declareDetailForTypeRef(field.type);
-
-			const fieldDetail = VariableDetailInformation.Field(struct.fields.get(field.name), field.nameToken, struct, true);
-			this.registerDetail(field.nameToken, fieldDetail);
+			this.handleEnumDeclaration(node);
 		});
+	}
 
+	private forwardDeclareStructs() {
+		this.program.body.forEach(node => {
+			if (node.type != ASTType.StructDeclaration) return;
+
+			const struct = new Struct(this, node);
+			this.structs.set(node.name, struct);
+
+			this.registerDetail(node.nameToken, struct);
+			node.fields.forEach(field => {
+				this.declareDetailForTypeRef(field.type);
+
+				const fieldDetail = VariableDetailInformation.Field(struct.fields.get(field.name), field.nameToken, struct, true);
+				this.registerDetail(field.nameToken, fieldDetail);
+			});
+		});
+	}
+
+	private handleStructDeclaration(node: StructDeclaration) {
+		const struct = this.structs.get(node.name);
 		// Only build method after the struct is fully defined, so that methods can reference the struct's fields if needed
 		struct.buildMethods();
 	}
@@ -1398,12 +1427,6 @@ class Compiler {
 			return null;
 		}
 
-		if (!this.functions.has(node.name)) this.functions.set(node.name, []);
-		const existingTypeSig = this.functions.get(node.name).find(f => this.areTypesEqual(f.typeRef, funcCtx.typeRef, true));
-		if (existingTypeSig) throw new Error(`Function '${node.nameToken.value}' with the same type signature already exists.`);
-
-		this.functions.get(node.name).push(funcCtx);
-
 		return funcCtx;
 	}
 
@@ -1444,18 +1467,23 @@ class Compiler {
 			};
 
 			const curContext = this.currentContext;
-			const ctx = this.handleTopLevelFunctionDeclaration(funcDeclNode);
+			const ctx = new FunctionContext(this, funcDeclNode);
+			this.functions.set(funcDeclNode.name, [ctx]);
+			this.handleFunctionDeclaration(funcDeclNode, ctx);
 			this.lambdaFunctions.set(node, ctx);
 			this.currentContext = curContext; // Restore context after forward declare
 		});
 	}
 
-	public handleFunctionDeclaration(node: FunctionDeclaration): FunctionContext {
+	public handleFunctionDeclaration(node: FunctionDeclaration, existingCtx?: FunctionContext): FunctionContext {
 		// if (this.currentContext != null) throw new Error(`Nested function declarations are not supported.`);
 		this.forwardDeclareLambdaFunctions(node);
 
 		const argSize = node.parameters.reduce((acc, param) => acc + this.resolveTypeSize(param.type), 0);
-		const funcCtx = new FunctionContext(this, node);
+		// const funcCtx = new FunctionContext(this, node);
+		const funcCtx = existingCtx ?? this.functionDeclMap.get(node);
+		if (!funcCtx) throw new Error(`Function context not found for function declaration: ${node.nameToken.value}`);
+		funcCtx.beginFunction();
 		this.registerDetail(node.nameToken, funcCtx);
 		this.currentContext = funcCtx;
 
