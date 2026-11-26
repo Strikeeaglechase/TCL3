@@ -1,0 +1,44 @@
+#include "./memcopy.tcl3"
+
+#parameter T: any
+
+#export %T%List
+struct %T%List {
+	data: %T%*;
+	length: int;
+	capacity: int;
+
+	static fn new(length: int): %T%List {
+		let list: %T%List = {length: 0, capacity: length};
+
+		list.data = <%T%*>malloc(length * sizeof(%T%));
+
+		return list;
+	}
+
+	fn push(value: %T%): void {
+		if (this->length >= this->capacity) {
+			this->resize();
+		}
+
+		this->data[this->length] = value;
+		this->length += 1;
+	}
+
+	fn "[]"(index: int): %T% {
+		return this->data[index];
+	}
+
+	fn resize(): void {
+		this->capacity *= 2;
+
+		let newData = <%T%*>malloc(this->capacity * sizeof(%T%));
+		memcopy(<byte*>this->data, <byte*>newData, this->length * sizeof(%T%));
+		// for (let i = 0; i < this->length; i += 1) {
+		// 	newData[i] = this->data[i];
+		// }
+
+		// free(this->data);
+		this->data = newData;
+	}
+}

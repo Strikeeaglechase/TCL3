@@ -68,6 +68,15 @@ const malloc = new BuiltInFunction(
 	}
 );
 
+const free = new BuiltInFunction(
+	"free", //
+	[{ name: "ptr", type: ptrOf(voidType()) }],
+	voidType(),
+	function (this: Compiler, call: FunctionCall) {
+		if (call.arguments.length != 1) throw new Error(`free expects 1 argument, got ${call.arguments.length}`);
+	}
+);
+
 const sizeof = new BuiltInFunction(
 	"sizeof", //
 	[{ name: "type", type: voidType() }],
@@ -119,6 +128,6 @@ const intToFloat = new BuiltInFunction(
 	}
 );
 
-const builtInFunctions: BuiltInFunction[] = [malloc, sizeof, floatToInt, intToFloat];
+const builtInFunctions: BuiltInFunction[] = [malloc, free, sizeof, floatToInt, intToFloat];
 
 export { BuiltInFunction, builtInFunctions };

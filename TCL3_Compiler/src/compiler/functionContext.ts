@@ -71,6 +71,13 @@ class FunctionContext implements IType {
 		this.builder.addLabel(this.label);
 	}
 
+	public endFunction() {
+		console.log(`Function ${this.name} end`);
+		this.locals.forEach((local, name) => {
+			console.log(` - Local ${name} (${typeToStr(local.type)}) exiting scope`);
+		});
+	}
+
 	private checkOrResolveReturnType() {
 		this.returnType = this.definition.returnType;
 		const returns: ReturnStatement[] = [];
@@ -164,7 +171,11 @@ class FunctionContext implements IType {
 
 			// Concrete type, safe to immediately define
 			if (node.variableType) {
-				this.defineLocalVariable(node.name, node.nameToken, node.variableType, true);
+				try {
+					this.defineLocalVariable(node.name, node.nameToken, node.variableType, true);
+				} catch (e) {
+					this.compiler.handleError(e, { startIndex: node.nameToken.start, endIndex: node.nameToken.end, fileIdentifier: node.nameToken.fileIdentifier });
+				}
 				return;
 			}
 
@@ -177,7 +188,16 @@ class FunctionContext implements IType {
 				throw new Error(
 					`Cannot infer type for local variable(s) in function '${this.nameToken.value}': ${varDecls.map(v => v.nameToken.value).join(", ")}`
 				);
-			this.defineLocalVariable(typeReady.name, typeReady.nameToken, this.compiler.inferTypeFrom(typeReady.initializer), true);
+			try {
+				this.defineLocalVariable(typeReady.name, typeReady.nameToken, this.compiler.inferTypeFrom(typeReady.initializer), true);
+			} catch (e) {
+				this.compiler.handleError(e, {
+					startIndex: typeReady.nameToken.start,
+					endIndex: typeReady.nameToken.end,
+					fileIdentifier: typeReady.nameToken.fileIdentifier
+				});
+			}
+
 			varDecls.splice(varDecls.indexOf(typeReady), 1);
 		}
 

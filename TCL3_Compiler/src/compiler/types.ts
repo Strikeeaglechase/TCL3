@@ -6,11 +6,12 @@ const primitiveSizeMap: Record<PrimitiveTypeName, number> = {
 	void: 0,
 	int: INT_SIZE,
 	char: 1,
+	byte: 1,
 	bool: 1,
 	float: 4
 };
 
-const primitiveTypeNames = ["void", "int", "char", "bool", "float"] as const;
+const primitiveTypeNames = ["void", "int", "char", "byte", "bool", "float"] as const;
 type PrimitiveTypeName = (typeof primitiveTypeNames)[number];
 const isPrimitiveTypeName = (type: string): type is PrimitiveTypeName => {
 	return primitiveTypeNames.includes(type as PrimitiveTypeName);

@@ -98,6 +98,31 @@ interface TokenizeResult {
 	typeParameters: TypeParameter[];
 }
 
+function parseCharLiteral(literal: string): string {
+	if (literal.length == 1) return literal;
+	if (literal.length == 2 && literal[0] == "\\") {
+		switch (literal[1]) {
+			case "n":
+				return "\n";
+			case "r":
+				return "\r";
+			case "t":
+				return "\t";
+			case "\\":
+				return "\\";
+			case "0":
+				return "\0";
+			default:
+				throw new Error(`Invalid escape sequence in character literal: '${literal}'`);
+		}
+	}
+
+	if (literal.length > 1) throw new Error(`Invalid character literal: '${literal}'`);
+	if (literal.length == 0) throw new Error(`Empty character literal: ''`);
+
+	return literal;
+}
+
 class Tokenizer {
 	private charStream: CharStream;
 	private defines: Map<string, Token[]> = new Map();
@@ -177,6 +202,7 @@ class Tokenizer {
 
 		if (numberLiteralStartChars.test(char)) return this.processNumberLiteral(char);
 		if (char == '"' || char == "'") return this.processStringLiteral(char);
+		if (char == "$") return this.processTemplateStringLiteral();
 
 		if (!identifierStart.test(char)) throw new Error(`Unexpected character: ${char}`);
 
@@ -203,12 +229,65 @@ class Tokenizer {
 	private processStringLiteral(stringLitType: "'" | '"') {
 		const stringLiteral = this.charStream.readUntilAndConsume(stringLitType).join("");
 		if (stringLitType == "'") {
-			if (stringLiteral.length > 1) throw new Error(`Invalid character literal: '${stringLiteral}'`);
-			if (stringLiteral.length == 0) throw new Error(`Empty character literal: ''`);
-			return { type: TokenType.LiteralChar, value: stringLiteral.charCodeAt(0).toString() };
+			const charLiteral = parseCharLiteral(stringLiteral);
+			return { type: TokenType.LiteralChar, value: charLiteral.charCodeAt(0).toString() };
 		}
 
 		return { type: TokenType.LiteralString, value: stringLiteral };
+	}
+
+	private processTemplateStringLiteral() {
+		this.charStream.consume('"');
+
+		const fragments: NonPositionToken[] = [];
+		let currentStringFragment = "";
+
+		function addCurrentStringFragment() {
+			fragments.push({ type: TokenType.Identifier, value: "String" });
+			fragments.push({ type: TokenType.Symbol, value: "." });
+			fragments.push({ type: TokenType.Identifier, value: "new" });
+			fragments.push({ type: TokenType.Symbol, value: "(" });
+			fragments.push({ type: TokenType.LiteralString, value: currentStringFragment });
+			fragments.push({ type: TokenType.Symbol, value: ")" });
+		}
+
+		while (!this.charStream.eof()) {
+			const next = this.charStream.next();
+
+			if (next == '"') {
+				if (currentStringFragment != null) addCurrentStringFragment();
+				break;
+			}
+
+			if (next != "{") {
+				if (currentStringFragment == null) currentStringFragment = "";
+				currentStringFragment += next;
+				continue;
+			}
+
+			// Template string value start
+			// fragments.push({ type: TokenType.LiteralString, value: currentStringFragment });
+			addCurrentStringFragment();
+			fragments.push({ type: TokenType.Operator, value: "+" });
+			currentStringFragment = null;
+
+			while (!this.charStream.eof()) {
+				const nextTokenGroup = this.readToken();
+				const nextTokenGroupArray = Array.isArray(nextTokenGroup) ? nextTokenGroup : [nextTokenGroup];
+				const lastToken = nextTokenGroupArray[nextTokenGroupArray.length - 1];
+
+				if (lastToken.type == TokenType.Symbol && lastToken.value == "}") {
+					break;
+				}
+
+				fragments.push(...nextTokenGroupArray);
+			}
+
+			const peaked = this.charStream.peak();
+			if (peaked != '"') fragments.push({ type: TokenType.Operator, value: "+" });
+		}
+
+		return fragments;
 	}
 
 	private processNumberLiteral(char: string) {

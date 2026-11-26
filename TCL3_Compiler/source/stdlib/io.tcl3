@@ -1,0 +1,53 @@
+#include "./string.tcl3"
+
+#export print
+fn print(str: char*): void {
+	let i = 0;
+
+	while(str[i] != 0) {
+		out str[i];
+		i += 1;
+	}
+}
+
+#export println
+fn println(str: char*): void {
+	print(str);
+	out '\n';
+}
+
+fn println(str: String*): void {
+	println(str->chars);
+}
+
+#export intToStr
+fn intToStr(value: int): char* {
+	let buffer = <char*>malloc(12);
+
+	let currentLength = 0;
+	if (value < 0) {
+		buffer[0] = '-';
+		currentLength += 1;
+		value = -value;
+	}
+
+	let divisor = 1;
+	
+	while (value / divisor >= 10) {
+		divisor *= 10;
+	}
+
+	while (divisor > 0) {
+		let digit = value / divisor;
+		buffer[currentLength] = <char>('0' + digit);
+		currentLength += 1;
+
+		value %= divisor;
+		divisor /= 10;
+	}
+
+	buffer[currentLength] = '\0'; // Null-terminate the string
+
+	return buffer;
+}
+

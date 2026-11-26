@@ -850,7 +850,9 @@ class Analyzer {
 				switch (node.literalType) {
 					case TokenType.LiteralString:
 						return [tokenAt(SemanticTokenTypes.string, node.location)];
-					case TokenType.LiteralNumber:
+					case TokenType.LiteralBool:
+					case TokenType.LiteralInt:
+					case TokenType.LiteralFloat:
 						return [tokenAt(SemanticTokenTypes.number, node.location)];
 					case TokenType.LiteralChar:
 						return [tokenAt(SemanticTokenTypes.string, node.location)];

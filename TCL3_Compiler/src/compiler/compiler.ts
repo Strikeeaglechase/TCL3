@@ -88,19 +88,20 @@ class BinaryExpressionTypeEvalResult {
 		public readonly struct: Struct,
 
 		public readonly failedToEvaluateType: boolean,
-		public readonly isOpOverload: boolean
+		public readonly isOpOverload: boolean,
+		public readonly leftHandAlreadyPointer: boolean
 	) {}
 
 	public static failed(): BinaryExpressionTypeEvalResult {
-		return new BinaryExpressionTypeEvalResult(null, null, null, null, true, false);
+		return new BinaryExpressionTypeEvalResult(null, null, null, null, true, false, false);
 	}
 
 	public static notOpOverload(): BinaryExpressionTypeEvalResult {
-		return new BinaryExpressionTypeEvalResult(null, null, null, null, false, false);
+		return new BinaryExpressionTypeEvalResult(null, null, null, null, false, false, false);
 	}
 
-	public static opOverload(method: FunctionContext, left: AST, right: AST, struct: Struct): BinaryExpressionTypeEvalResult {
-		return new BinaryExpressionTypeEvalResult(method, left, right, struct, false, true);
+	public static opOverload(method: FunctionContext, left: AST, right: AST, struct: Struct, leftHandAlreadyPointer: boolean): BinaryExpressionTypeEvalResult {
+		return new BinaryExpressionTypeEvalResult(method, left, right, struct, false, true, leftHandAlreadyPointer);
 	}
 }
 
@@ -523,7 +524,8 @@ class Compiler {
 				this.builder.move(memReg(Register.sp, INT_SIZE, stackOffset), memReg(Register.r0, INT_SIZE, i * INT_SIZE));
 			}
 		} else {
-			this.builder.move(memReg(Register.sp, finalTypeSize, -finalTypeSize), memReg(Register.r0, finalTypeSize));
+			// Still have to offset of INT_SIZE into stack as the stack is always aligned to INT_SIZE
+			this.builder.move(memReg(Register.sp, finalTypeSize, -INT_SIZE), memReg(Register.r0, finalTypeSize));
 		}
 
 		// Adjust stack pointer to remove the values we just popped off
@@ -973,10 +975,18 @@ class Compiler {
 				const needsSwap = this.isEffectivelyNumberType(leftType) && commutativeOperators.includes(node.operator);
 
 				const opArgs = needsSwap ? [rightType, leftType] : [leftType, rightType];
-				const finalLeftType = needsSwap ? rightType : leftType;
+				const leftHandRealType = needsSwap ? rightType : leftType;
+				let finalLeftType = leftHandRealType;
+				let isPointer = false;
+
+				// May be a pointer, which is fine as long as points to a valid struct type
+				if (finalLeftType.type == ASTType.WrappedTypeRef) {
+					isPointer = true;
+					finalLeftType = finalLeftType.inner;
+				}
 
 				if (finalLeftType.type != ASTType.RawTypeRef)
-					throw new Error(`Attempt to perform '${node.operatorToken.value}' operator on non-raw type '${typeToStr(finalLeftType)}'`);
+					throw new Error(`Attempt to perform '${node.operatorToken.value}' operator on non-raw type '${typeToStr(leftHandRealType)}'`);
 
 				const structDef = this.structs.get(finalLeftType.rawType);
 				if (!structDef)
@@ -989,10 +999,16 @@ class Compiler {
 					throw new Error(`Struct type '${finalLeftType.rawTypeToken.value}' does not have an overload for operator '${node.operatorToken.value}'.`);
 
 				// LHS is the struct, first argument will be the this pointer
-				const argumentList = [ptrOf(opArgs[0]), opArgs[1]];
+				const argumentList = [ptrOf(finalLeftType), opArgs[1]];
 				const matchingMethod = this.findFunctionMatchingArgumentList(overloadMethods, argumentList);
 
-				return BinaryExpressionTypeEvalResult.opOverload(matchingMethod, needsSwap ? node.right : node.left, needsSwap ? node.left : node.right, structDef);
+				return BinaryExpressionTypeEvalResult.opOverload(
+					matchingMethod,
+					needsSwap ? node.right : node.left,
+					needsSwap ? node.left : node.right,
+					structDef,
+					isPointer
+				);
 			}
 		}
 
@@ -1030,7 +1046,7 @@ class Compiler {
 				arguments: [right]
 			};
 
-			this.callMethod(struct, method.name, call, binaryExpr.operatorToken, call.reference);
+			this.callMethod(struct, method.name, call, binaryExpr.operatorToken, call.reference, overloadResult.leftHandAlreadyPointer);
 			return;
 		}
 		const useFloat = this.isFloatBinaryExpression(binaryExpr);
@@ -1362,6 +1378,7 @@ class Compiler {
 		let outType: "INT" | "CHAR" | "FLOAT" | "BOOL";
 		switch (type.rawType) {
 			case "int":
+			case "byte":
 				outType = "INT";
 				break;
 			case "char":
@@ -1379,7 +1396,7 @@ class Compiler {
 					outType = "INT"; // Enums are effectively ints
 					break;
 				}
-				throw new Error(`Out statement only supports int, char, float, and bool types, got ${type.rawType}`);
+				throw new Error(`Out statement only supports int, char, float, byte, and bool types, got ${type.rawType}`);
 		}
 
 		this.compileAst(node.expression);
@@ -1544,6 +1561,8 @@ class Compiler {
 		} else {
 			this.builder.pop(reg(Register.funcRet));
 		}
+
+		funcCtx.endFunction();
 
 		this.builder.comment(`Restore sp`);
 		this.builder.move(reg(Register.fp), reg(Register.sp));
@@ -1823,7 +1842,7 @@ class Compiler {
 		else if (returnSize > INT_SIZE) this.currentContext.readVarToStack(returnVarName, null);
 	}
 
-	private callMethod(struct: Struct, methodName: string, call: FunctionCall, callToken: Token, thisArgReference: Reference) {
+	private callMethod(struct: Struct, methodName: string, call: FunctionCall, callToken: Token, thisArgReference: Reference, thisArgAlreadyPointer = false) {
 		const methods = struct.methods.get(methodName);
 		const debugName = `${struct.name}_${methodName}`;
 		this.builder.comment(`Calling method ${debugName}`);
@@ -1836,11 +1855,18 @@ class Compiler {
 
 		if (callToken) this.registerDetail(callToken, matchingMethod);
 
-		return this.callFunction(debugName, matchingMethod.getCallInfo(), call, thisArgReference, callToken ?? matchingMethod.nameToken);
+		return this.callFunction(debugName, matchingMethod.getCallInfo(), call, thisArgReference, callToken ?? matchingMethod.nameToken, thisArgAlreadyPointer);
 	}
 
 	// Name is only for debug info/symbols
-	private callFunction(name: string, funcInfo: FunctionCallInfo, call: FunctionCall, thisArgRef: Reference = null, nameToken: Token = null) {
+	private callFunction(
+		name: string,
+		funcInfo: FunctionCallInfo,
+		call: FunctionCall,
+		thisArgRef: Reference = null,
+		nameToken: Token = null,
+		thisArgAlreadyPointer = false
+	) {
 		this.builder.commentln(`Calling ${name}`);
 
 		const returnSize = this.resolveTypeSize(funcInfo.returnType);
@@ -1856,7 +1882,7 @@ class Compiler {
 		let argumentSize = funcInfo.argumentSize;
 		if (thisArgRef) {
 			this.builder.comment(`Evaluating thisArg for method call ${name}`);
-			this.handleReferenceRead(thisArgRef, true); // Push a thisarg pointer
+			this.handleReferenceRead(thisArgRef, !thisArgAlreadyPointer); // Push a thisarg pointer
 		}
 		call.arguments.forEach(arg => this.compileAst(arg));
 

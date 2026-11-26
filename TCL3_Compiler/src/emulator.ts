@@ -1,3 +1,5 @@
+import fs from "fs";
+
 import { bitsToFloat32, float32ToBits } from "./ir/float32.js";
 import { IRArgument, IRArgumentType, IRCodeLine, IRLabelLine, IROpCode, IRProgram, Register } from "./ir/ir.js";
 import { INT_SIZE } from "./ir/irBuilder.js";
@@ -290,7 +292,16 @@ class Emulator extends IProgramRunner {
 
 			case "OUT_CHAR":
 				const charCode = this.getValue(args[0]);
-				if (!this.silent) console.log(`OUT: ${String.fromCharCode(charCode)}`);
+				if (!this.silent) {
+					const str = String.fromCharCode(charCode);
+					if (str == "\n") {
+						// console.log(str);
+					} else {
+						// this.lineBuffer += str;
+					}
+					process.stdout.write(str);
+					// console.log(`OUT: ${String.fromCharCode(charCode)}`);
+				}
 				this.outputs.push(charCode);
 				break;
 
@@ -307,7 +318,12 @@ class Emulator extends IProgramRunner {
 				break;
 
 			case "INSPECT":
-				this.handleInspect();
+				const logRow = this.handleInspect(0);
+				console.log(logRow.registerOutput);
+				console.log(logRow.tableOutput);
+				let fileOutput = logRow.registerOutput + "\n";
+				for (let i = 0; i < 16; i++) fileOutput += this.handleInspect(i, 3).tableOutput + "\n";
+				fs.writeFileSync("../debug/inspect.txt", fileOutput);
 				break;
 
 			default:
@@ -315,37 +331,46 @@ class Emulator extends IProgramRunner {
 		}
 	}
 
-	private handleInspect() {
+	private handleInspect(startRow: number, minColWidth = 1) {
 		let registerOutput = `Tick: ${this.ticks} | `;
 		Object.entries(this.registers).forEach(([reg, value]) => {
 			registerOutput += `${reg}: ${value} | `;
 		});
 
-		console.log(registerOutput);
 		const snapshotSize = 64;
 		const table: string[][] = [];
 		table.push([`Addresses:`]);
 		table.push([`Memory:`]);
 		table.push([`Registers:`]);
 
-		this.memory.slice(0, snapshotSize).forEach((val, index) => {
-			table[0].push(index.toString());
+		this.memory.slice(startRow * snapshotSize, (startRow + 1) * snapshotSize).forEach((val, index) => {
+			const address = startRow * snapshotSize + index;
+			table[0].push(address.toString());
 			table[1].push(val.toString());
 
-			if (this.registers.sp === index) table[2].push("^SP");
-			else if (this.registers.fp === index) table[2].push("^FP");
+			if (this.registers.sp === address) table[2].push("^SP");
+			else if (this.registers.fp === address) table[2].push("^FP");
+			else if (this.registers.memPtr === address) table[2].push("^MP");
+			else if (this.registers.r0 === address) table[2].push("^R0");
+			else if (this.registers.r1 === address) table[2].push("^R1");
 			else table[2].push("");
 		});
 
 		const maxColWidths: number[] = [];
 		for (let col = 0; col < table[0].length; col++) {
-			maxColWidths[col] = Math.max(...table.map(row => row[col]?.length || 0));
+			maxColWidths[col] = Math.max(Math.max(...table.map(row => row[col]?.length || 0)), minColWidth);
 		}
 
-		table.forEach(row => {
+		const tableResult = table.map(row => {
 			const paddedRow = row.map((cell, colIndex) => cell.padEnd(maxColWidths[colIndex], " "));
-			console.log(paddedRow.join(" "));
+			// console.log(paddedRow.join(" "));
+			return paddedRow.join(" ");
 		});
+
+		return {
+			registerOutput,
+			tableOutput: tableResult.join("\n")
+		};
 	}
 
 	private setValue(arg: IRArgument, value: number) {

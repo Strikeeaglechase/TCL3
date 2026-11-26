@@ -21,6 +21,17 @@
 			"program": "${workspaceFolder}/TCL3_Compiler/dist/index.js",
 			"cwd": "${workspaceFolder}/TCL3_Compiler/dist",
 			"outFiles": ["${workspaceFolder}/TCL3_Compiler/**/*.js"]
+		},
+		{
+			"name": "Run TCL3 Extension",
+			"type": "extensionHost",
+			"request": "launch",
+			"args": [
+				"--extensionDevelopmentPath=${workspaceFolder}/TCL3_LanguageExtension"
+			],
+			"outFiles": [
+				"${workspaceFolder}/TCL3_LanguageExtension/client/out/**/*.js"
+			]
 		}
 	]
 }

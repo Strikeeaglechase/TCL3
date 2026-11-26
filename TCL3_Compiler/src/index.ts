@@ -51,7 +51,7 @@ function linkCompileAndExecute(sourceFilePath: string) {
 	// runner.run();
 
 	const unitTester = new UnitTester(Emulator);
-	unitTester.runTests();
+	// unitTester.runTests();
 }
 
 function executeIrFile(irFilePath: string) {

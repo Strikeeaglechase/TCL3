@@ -1,0 +1,41 @@
+#export String
+struct String {
+	chars: char*;
+
+	static fn new(chars: char*): String {
+		let str: String = { chars: chars };
+		return str;
+	}
+
+	fn "+"(other: String): String {
+		let len1 = this->length();
+		let len2 = other.length();
+		let newLen = len1 + len2;
+
+		let newChars = <char*>malloc(newLen + 1); // +1 for null terminator
+
+		for (let i = 0; i < len1; i += 1) {
+			newChars[i] = this->chars[i];
+		}
+
+		for (let j = 0; j < len2; j += 1) {
+			newChars[len1 + j] = other.chars[j];
+		}
+
+		newChars[newLen] = '\0'; // Null-terminate the string
+
+		return String.new(newChars);
+	}
+
+	fn "+"(other: char*): String {
+		return this + String.new(other);
+	}
+
+	fn length(): int {
+		let len = 0;
+		while (this->chars[len] != 0) {
+			len += 1;
+		}
+		return len;
+	}
+}

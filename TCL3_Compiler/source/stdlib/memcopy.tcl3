@@ -1,0 +1,6 @@
+#export memcopy
+fn memcopy(src: byte*, dest: byte*, size: int): void {
+	for (let i = 0; i < size; i += 1) {
+		dest[i] = src[i];
+	}
+}
