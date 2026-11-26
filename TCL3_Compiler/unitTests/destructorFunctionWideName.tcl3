@@ -1,0 +1,15 @@
+// EXPECT: 5
+
+struct Guard {
+	id: int;
+	static fn new(id: int): Guard {
+		let guard: Guard = {id: id};
+		return guard;
+	}
+	fn drop(): void { out this->id; }
+}
+
+fn main(): void {
+	if (false) { let later: Guard = {id: 99}; }
+	later = Guard.new(5);
+}

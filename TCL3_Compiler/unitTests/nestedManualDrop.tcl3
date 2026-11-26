@@ -1,0 +1,21 @@
+// EXPECT: 7
+// EXPECT: 9
+
+struct Inner {
+	id: int;
+	fn drop(): void { out this->id; }
+}
+
+struct Outer {
+	inner: Inner;
+	fn drop(): void {
+		this->inner.drop();
+		out 9;
+	}
+}
+
+fn main(): void {
+	let inner: Inner = {id: 7};
+	let outer: Outer = {};
+	outer.inner = inner;
+}

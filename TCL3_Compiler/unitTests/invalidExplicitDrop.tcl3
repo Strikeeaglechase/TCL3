@@ -1,0 +1,6 @@
+// EXPECT_COMPILE_ERROR
+struct Guard { fn drop(): void {} }
+fn main(): void {
+	let guard: Guard = {};
+	guard.drop();
+}

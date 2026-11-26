@@ -1,0 +1,6 @@
+// EXPECT_COMPILE_ERROR
+struct Guard { id: int; fn drop(): void {} }
+fn main(): void {
+	if (true) { let guard: Guard = {id: 1}; }
+	out guard.id;
+}

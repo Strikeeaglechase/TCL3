@@ -1,0 +1,18 @@
+// EXPECT: 3
+// EXPECT: 4
+
+struct Guard {
+	id: int;
+	spare: int;
+	fn drop(): void { out this->id; }
+}
+
+fn make(id: int): Guard {
+	let guard: Guard = {id: id, spare: 0};
+	return guard;
+}
+
+fn main(): void {
+	make(3);
+	let kept: Guard = make(4);
+}

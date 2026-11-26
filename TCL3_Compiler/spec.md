@@ -22,6 +22,8 @@ Declaration order is part of the language. Declarations are compiled in source/l
 
 Variables may only be declared inside functions. All variables in a function share one function-wide scope; blocks do not introduce a new variable scope. Local declarations are discovered before the function body is compiled, so a local name is known throughout its function.
 
+A struct value with a `drop` method is live from initialization until the end of the block or loop iteration containing its declaration. Its name remains known after that point, but the value must be assigned again before it can be read. Function parameters of such types are live for the function call.
+
 Reading a variable before its initializer executes is undefined behavior. Its storage may contain any value.
 
 ## Preprocessor and multiple files
@@ -252,7 +254,9 @@ struct Point {
 }
 ```
 
-A struct is a value type. Assignment, argument passing, and return copy all of its cells.
+A struct is a value type. Structs without a destructor are copied on assignment, argument passing, and return. A struct with an instance `fn drop(): void` is moved instead: the destination receives its value, and reading the source before reassigning it is a compile-time error. A by-value parameter receives ownership from its caller.
+
+The compiler emits `drop()` calls for destructible locals and by-value parameters at lifetime boundaries, including on `return`, `break`, and `continue`. Calls follow reverse declaration order. Reassigning a value known to be live calls its destructor before replacing it. A discarded standalone function-call result of a destructible type is dropped at the end of the statement. There are no runtime initialized or moved flags: if a value is initialized or moved on only some control-flow paths, cleanup may call `drop()` on a value that is not live, which is undefined behavior. Calling `drop()` explicitly is allowed only inside another `drop()` method. Fields and array elements are not dropped automatically; a containing struct's `drop()` method must handle them. Moving an individual field or array element, or using a destructible temporary in a chained expression, is not yet supported.
 
 Struct values use named field initializers:
 

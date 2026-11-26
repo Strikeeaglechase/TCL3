@@ -15,6 +15,7 @@ interface Local {
 	size: number;
 	refId: string;
 	nameToken: Token;
+	name: string;
 }
 
 type ForwardDeclaredLocal = Omit<Local, "stackOffset">;
@@ -72,10 +73,7 @@ class FunctionContext implements IType {
 	}
 
 	public endFunction() {
-		console.log(`Function ${this.name} end`);
-		this.locals.forEach((local, name) => {
-			console.log(` - Local ${name} (${typeToStr(local.type)}) exiting scope`);
-		});
+		// console.log(`Function ${this.name} end`);
 	}
 
 	private checkOrResolveReturnType() {
@@ -128,6 +126,15 @@ class FunctionContext implements IType {
 		this.establishType(); // Establish concrete type, throws if unable
 	}
 
+	public getDestructibleLocals(): Local[] {
+		const destructibleLocals: Local[] = [];
+		this.locals.forEach(local => {
+			if (this.compiler.isDestructibleType(local.type)) destructibleLocals.push(local);
+		});
+
+		return destructibleLocals;
+	}
+
 	// Enables recursive functions if the user has specified a return type
 	private establishPartialType() {
 		if (this.definition.returnType == null) return;
@@ -161,7 +168,8 @@ class FunctionContext implements IType {
 				refId: uuidv4(),
 				type: param.type,
 				size: this.compiler.resolveTypeSize(param.type),
-				nameToken: param.nameToken
+				nameToken: param.nameToken,
+				name: param.name
 			});
 		});
 
@@ -212,7 +220,7 @@ class FunctionContext implements IType {
 		// Generated locals have no source token, so their callers pass null.
 		if (this.locals.has(name)) throw new Error(`Local variable '${nameToken?.value ?? name}' is already defined in function '${this.nameToken.value}'.`);
 		const size = this.compiler.resolveTypeSize(type);
-		this.locals.set(name, { refId: uuidv4(), type, stackOffset: this.currentStackOffset, size, nameToken: nameToken });
+		this.locals.set(name, { refId: uuidv4(), type, stackOffset: this.currentStackOffset, size, nameToken: nameToken, name: name });
 		this.currentStackOffset += size;
 
 		if (!preReservedStack) {
@@ -233,7 +241,7 @@ class FunctionContext implements IType {
 			);
 
 		const size = this.compiler.resolveTypeSize(type);
-		this.locals.set(name, { refId: forwardDeclaredParam?.refId ?? uuidv4(), type, stackOffset, size, nameToken: nameToken });
+		this.locals.set(name, { refId: forwardDeclaredParam?.refId ?? uuidv4(), type, stackOffset, size, nameToken: nameToken, name: name });
 	}
 
 	// Reads variable 'name' onto the stack

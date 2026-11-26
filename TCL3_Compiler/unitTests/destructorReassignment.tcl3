@@ -1,0 +1,19 @@
+// EXPECT: 1
+// EXPECT: 2
+
+struct Guard {
+	id: int;
+	fn drop(): void { out this->id; }
+}
+
+fn make(id: int): Guard {
+	let guard: Guard = {id: id};
+	return guard;
+}
+
+fn main(): void {
+	let first: Guard = {id: 1};
+	let second: Guard = first;
+	if (false) { let skipped: Guard = {id: 99}; }
+	first = make(2);
+}

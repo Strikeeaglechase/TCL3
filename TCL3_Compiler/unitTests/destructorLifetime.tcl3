@@ -1,0 +1,34 @@
+// EXPECT: 20
+// EXPECT: 2
+// EXPECT: 10
+// EXPECT: 1
+// EXPECT: 3
+// EXPECT: 4
+
+struct Guard {
+	id: int;
+	spare: int;
+	fn drop(): void { out this->id; }
+}
+
+fn make(id: int): Guard {
+	let guard: Guard = {id: id, spare: 0};
+	return guard;
+}
+
+fn consume(guard: Guard): void { out 10; }
+
+fn main(): void {
+	let first: Guard = make(1);
+	let second: Guard = first;
+	if (true) {
+		let inner: Guard = make(2);
+		out 20;
+	}
+	consume(second);
+	for (let i = 0; i < 2; i += 1) {
+		let iteration: Guard = make(3 + i);
+		if (i == 0) continue;
+		break;
+	}
+}

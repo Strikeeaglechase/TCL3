@@ -35,6 +35,7 @@ import { walk } from "../parser/walker.js";
 import { BuiltInFunction, builtInFunctions } from "./builtInFunctions.js";
 import { BuiltInTypeRefDetailInformation, FunctionListDetailInformation, TokenDetailInfo, VariableDetailInformation } from "./detail.js";
 import { FunctionContext } from "./functionContext.js";
+import { LifetimeChecker } from "./lifetime.js";
 import {
 	boolType,
 	charType,
@@ -129,6 +130,9 @@ class Compiler {
 		return this.continueLabelStack[this.continueLabelStack.length - 1];
 	}
 	private breakLabelStack: string[] = [];
+	private loopScopeDepths: number[] = [];
+	private lifetimeScopes: { name: string; token: Token }[][] = [];
+	private maybeLive: Map<string, boolean> = new Map();
 	private get breakLabel(): string {
 		return this.breakLabelStack[this.breakLabelStack.length - 1];
 	}
@@ -141,6 +145,88 @@ class Compiler {
 		private program: Program,
 		private throwOnError: boolean = true
 	) {}
+
+	public isDestructibleType(type: ASTTypeRef): boolean {
+		return type?.type == ASTType.RawTypeRef && (this.structs.get(type.rawType)?.hasDestructor ?? false);
+	}
+
+	private beginLifetimeScope() {
+		this.lifetimeScopes.push([]);
+	}
+
+	private registerLifetime(name: string, token: Token) {
+		if (!this.isDestructibleType(this.currentContext.getTypeOfLocal(name, token))) return;
+		if (this.lifetimeScopes.some(scope => scope.some(local => local.name == name))) return;
+		this.lifetimeScopes[this.lifetimeScopes.length - 1].push({ name, token });
+	}
+
+	private emitDrop(name: string, token: Token, consume = true) {
+		if (!this.maybeLive.get(name)) return;
+		const type = this.currentContext.getTypeOfLocal(name, token);
+		if (type.type != ASTType.RawTypeRef) return;
+		const destructor = this.structs.get(type.rawType)?.destructor;
+		if (!destructor) return;
+		if (consume) this.maybeLive.set(name, false);
+		const reference: Reference = {
+			type: ASTType.Reference,
+			identifier: name,
+			identifierToken: token,
+			offsetExpressions: null,
+			child: null,
+			dereferenceCount: 0
+		};
+		const call: FunctionCall = { type: ASTType.FunctionCall, reference, arguments: [] };
+		this.callFunction(`${type.rawType}.drop`, destructor.getCallInfo(), call, reference, token);
+	}
+
+	private emitLifetimeCleanup(fromDepth: number, consume = false) {
+		for (let depth = this.lifetimeScopes.length - 1; depth >= fromDepth; depth--)
+			for (const local of [...this.lifetimeScopes[depth]].reverse()) this.emitDrop(local.name, local.token, consume);
+	}
+
+	private endLifetimeScope() {
+		this.emitLifetimeCleanup(this.lifetimeScopes.length - 1, true);
+		this.lifetimeScopes.pop();
+	}
+
+	private mergeMaybeLive(...states: Map<string, boolean>[]) {
+		const merged = new Map<string, boolean>();
+		for (const state of states) for (const [name, live] of state) merged.set(name, (merged.get(name) ?? false) || live);
+		this.maybeLive = merged;
+	}
+
+	private compileScopedBody(body: AST[]) {
+		this.beginLifetimeScope();
+		body.forEach(statement => this.compileStatement(statement));
+		this.endLifetimeScope();
+	}
+
+	private compileStatement(node: AST) {
+		if (node?.type != ASTType.FunctionCall) return this.compileAst(node);
+		const resultType = this.inferTypeFrom(node);
+		this.compileAst(node);
+		if (this.isDestructibleType(resultType)) this.dropStackValue(resultType);
+	}
+
+	private dropStackValue(type: ASTTypeRef) {
+		if (type.type != ASTType.RawTypeRef) return;
+		const destructor = this.structs.get(type.rawType)?.destructor;
+		if (!destructor) return;
+		const size = this.resolveTypeSize(type);
+		this.builder.sub(reg(Register.sp), imm(size), reg(Register.r0));
+		this.builder.push(reg(Register.r0));
+		const returnLabel = `__drop_temp_return_${id++}`;
+		this.builder.addLabelAfterNLines(returnLabel, 2);
+		this.builder.push(label(returnLabel));
+		this.builder.move(label(destructor.label), reg(Register.pc));
+		this.builder.sub(reg(Register.sp), imm(INT_SIZE + size), reg(Register.sp));
+	}
+
+	private markMovedExpression(expression: AST): void {
+		if (expression?.type == ASTType.TypeCast) return this.markMovedExpression(expression.expression);
+		if (expression?.type != ASTType.Reference || expression.child || expression.offsetExpressions || expression.dereferenceCount) return;
+		if (this.maybeLive.has(expression.identifier)) this.maybeLive.set(expression.identifier, false);
+	}
 
 	private registerDetail(token: Token, detail: TokenDetailInfo) {
 		if (this.tokenDetails.has(token)) {
@@ -313,7 +399,7 @@ class Compiler {
 				this.handleUnaryExpression(node);
 				break;
 			case ASTType.Block:
-				node.body.forEach(bodyNode => this.compileAst(bodyNode));
+				this.compileScopedBody(node.body);
 				break;
 			case ASTType.BreakStatement:
 				this.handleBreakStatement(node);
@@ -382,12 +468,14 @@ class Compiler {
 	private handleContinueStatement(node: ContinueStatement) {
 		if (this.continueLabel == null) throw new Error(`Continue statement used outside of a loop context.`);
 		this.builder.comment(`Continue statement`);
+		this.emitLifetimeCleanup(this.loopScopeDepths[this.loopScopeDepths.length - 1]);
 		this.builder.jump(label(this.continueLabel));
 	}
 
 	private handleBreakStatement(node: BreakStatement) {
 		if (this.breakLabel == null) throw new Error(`Break statement used outside of a loop context.`);
 		this.builder.comment(`Break statement`);
+		this.emitLifetimeCleanup(this.loopScopeDepths[this.loopScopeDepths.length - 1]);
 		this.builder.jump(label(this.breakLabel));
 	}
 
@@ -399,27 +487,34 @@ class Compiler {
 	}
 
 	private handleForLoop(node: ForLoop) {
-		this.compileAst(node.initializer);
+		this.beginLifetimeScope();
+		this.compileStatement(node.initializer);
 		const loopTopLabel = `for_loop_top_${id++}`;
 		const loopEndLabel = `for_loop_end_${id++}`;
 		const loopIncrementLabel = `for_loop_increment_${id++}`;
 
 		this.continueLabelStack.push(loopIncrementLabel);
 		this.breakLabelStack.push(loopEndLabel);
+		this.loopScopeDepths.push(this.lifetimeScopes.length);
 
 		this.builder.addLabel(loopTopLabel);
 		this.compileConditionToRegister(node.condition, Register.r0);
 		this.builder.jumpIfFalse(reg(Register.r0), label(loopEndLabel));
+		const loopEntry = new Map(this.maybeLive);
 
-		node.body.forEach(bodyNode => this.compileAst(bodyNode));
+		this.compileScopedBody(node.body);
 
 		this.builder.addLabel(loopIncrementLabel);
-		this.compileAst(node.increment);
+		this.compileStatement(node.increment);
+		const afterIteration = new Map(this.maybeLive);
 		this.builder.jump(label(loopTopLabel));
 		this.builder.addLabel(loopEndLabel);
+		this.mergeMaybeLive(loopEntry, afterIteration);
+		this.endLifetimeScope();
 
 		this.continueLabelStack.pop();
 		this.breakLabelStack.pop();
+		this.loopScopeDepths.pop();
 	}
 
 	private handleIfStatement(node: IfStatement) {
@@ -428,22 +523,33 @@ class Compiler {
 
 		this.compileConditionToRegister(node.condition, Register.r0);
 		this.builder.jumpIfFalse(reg(Register.r0), label(thenBodyEnd));
-		node.thenBody.forEach(bodyNode => this.compileAst(bodyNode));
+		let fallthroughState = new Map(this.maybeLive);
+		const exitStates: Map<string, boolean>[] = [];
+		this.compileScopedBody(node.thenBody);
+		exitStates.push(new Map(this.maybeLive));
 		if (ifEnd) this.builder.jump(label(ifEnd));
 		this.builder.addLabel(thenBodyEnd);
 
 		node.elseIfs.forEach(elseIf => {
 			const elifEnd = `elif_end_${id++}`;
 
+			this.maybeLive = new Map(fallthroughState);
 			this.compileConditionToRegister(elseIf.condition, Register.r0);
 			this.builder.jumpIfFalse(reg(Register.r0), label(elifEnd));
+			fallthroughState = new Map(this.maybeLive);
 
-			elseIf.body.forEach(bodyNode => this.compileAst(bodyNode));
+			this.compileScopedBody(elseIf.body);
+			exitStates.push(new Map(this.maybeLive));
 			this.builder.jump(label(ifEnd));
 			this.builder.addLabel(elifEnd);
 		});
 
-		if (node.elseBody) node.elseBody.body.forEach(bodyNode => this.compileAst(bodyNode));
+		this.maybeLive = new Map(fallthroughState);
+		if (node.elseBody) {
+			this.compileScopedBody(node.elseBody.body);
+			exitStates.push(new Map(this.maybeLive));
+		} else exitStates.push(new Map(fallthroughState));
+		this.mergeMaybeLive(...exitStates);
 
 		if (ifEnd) this.builder.addLabel(ifEnd);
 	}
@@ -454,19 +560,24 @@ class Compiler {
 
 		this.continueLabelStack.push(loopTopLabel);
 		this.breakLabelStack.push(loopEndLabel);
+		this.loopScopeDepths.push(this.lifetimeScopes.length);
 
 		this.builder.addLabel(loopTopLabel);
 
 		this.compileConditionToRegister(node.condition, Register.r0);
 		this.builder.jumpIfFalse(reg(Register.r0), label(loopEndLabel));
+		const loopEntry = new Map(this.maybeLive);
 
-		node.body.forEach(bodyNode => this.compileAst(bodyNode));
+		this.compileScopedBody(node.body);
+		const afterIteration = new Map(this.maybeLive);
 
 		this.builder.jump(label(loopTopLabel));
 		this.builder.addLabel(loopEndLabel);
+		this.mergeMaybeLive(loopEntry, afterIteration);
 
 		this.continueLabelStack.pop();
 		this.breakLabelStack.pop();
+		this.loopScopeDepths.pop();
 	}
 
 	private handleAssignment(node: Assignment) {
@@ -488,6 +599,7 @@ class Compiler {
 
 		// Evaluate the expression, expect result on the stack
 		this.compileAst(node.expression);
+		this.markMovedExpression(node.expression);
 
 		const ref = node.reference;
 		this.registerDetail(ref.identifierToken, this.currentContext.getDetailInfoFromRef(ref));
@@ -495,8 +607,11 @@ class Compiler {
 		// Simple full assignment to local variable
 		if (!ref.child && ref.offsetExpressions == null) {
 			if (ref.dereferenceCount == 0) {
+				this.emitDrop(ref.identifier, ref.identifierToken);
 				this.builder.comment(`Simple assignment to local variable: ${ref.identifier}`);
 				this.currentContext.writeVarFromStack(ref.identifier, ref.identifierToken);
+				if (this.maybeLive.has(ref.identifier)) this.maybeLive.set(ref.identifier, true);
+				this.registerLifetime(ref.identifier, ref.identifierToken);
 			} else {
 				this.builder.comment(`Assignment to pointer variable: ${ref.identifier} with deref count ${ref.dereferenceCount}`);
 				this.currentContext.useVariableAsPointerAndSetFromStack(ref.identifier, ref.identifierToken, 0, ref.dereferenceCount);
@@ -1315,6 +1430,7 @@ class Compiler {
 			varDecl.initializer.values.forEach((initer, index) => {
 				if (initer.type == ASTType.StructFieldInitializer) {
 					this.compileAst(initer.expression);
+					this.markMovedExpression(initer.expression);
 					this.builder.pop(reg(Register.r0));
 					if (type.type != ASTType.RawTypeRef) throw new Error(`Struct field initializer is only supported for raw type references.`);
 					const { offset, size } = this.getOffsetAndSizeOfSimpleStructField(type, initer.name, initer.nameToken);
@@ -1327,6 +1443,7 @@ class Compiler {
 					const offset = index * this.resolveTypeSize(type.inner);
 					this.builder.comment(`Array init for ${varDecl.name}[${index}] at offset ${offset}`);
 					this.compileAst(initer);
+					this.markMovedExpression(initer);
 					this.currentContext.useVariableAsPointerAndSetFromStack(varDecl.name, varDecl.nameToken, offset, 1); // Use the pointer to the array and set the value from the stack
 					// this.builder.pop(reg(Register.r0));
 					// this.currentContext.setVarFromRegister(varDecl.name, Register.r0, index);
@@ -1346,8 +1463,11 @@ class Compiler {
 				}
 			}
 			this.compileAst(varDecl.initializer);
+			this.markMovedExpression(varDecl.initializer);
 			this.currentContext.writeVarFromStack(varDecl.name, varDecl.nameToken);
 		}
+		if (this.maybeLive.has(varDecl.name)) this.maybeLive.set(varDecl.name, true);
+		this.registerLifetime(varDecl.name, varDecl.nameToken);
 	}
 
 	private getOffsetAndSizeOfSimpleStructField(structType: RawTypeRef, fieldName: string, fieldToken: Token) {
@@ -1367,6 +1487,8 @@ class Compiler {
 	private handleReturnStatement(node: ReturnStatement) {
 		this.builder.comment(`Return`);
 		this.compileAst(node.expression);
+		this.markMovedExpression(node.expression);
+		this.emitLifetimeCleanup(0);
 		this.builder.jump(label(this.currentContext.outLabel));
 	}
 
@@ -1538,9 +1660,14 @@ class Compiler {
 			const varDetail = VariableDetailInformation.ParameterDeclaration(funcCtx.getRefId(param.name, param.nameToken), param.nameToken, param.type);
 			this.registerDetail(param.nameToken, varDetail);
 		});
+		this.maybeLive = new Map(funcCtx.getDestructibleLocals().map(local => [local.name, funcCtx.isParameter(local.name)]));
+		new LifetimeChecker(this, funcCtx, node).check();
+		this.beginLifetimeScope();
+		node.parameters.forEach(param => this.registerLifetime(param.name, param.nameToken));
 
 		this.builder.commentln(`Function body fn "${node.name}":`);
-		node.body.forEach(statement => this.compileAst(statement));
+		node.body.forEach(statement => this.compileStatement(statement));
+		this.endLifetimeScope();
 
 		this.builder.addLabel(funcCtx.outLabel);
 
@@ -1814,6 +1941,7 @@ class Compiler {
 				);
 			}
 			this.compileAst(arg);
+			this.markMovedExpression(arg);
 		});
 
 		if (call.arguments.length != type.parameters.length) {
@@ -1843,6 +1971,7 @@ class Compiler {
 	}
 
 	private callMethod(struct: Struct, methodName: string, call: FunctionCall, callToken: Token, thisArgReference: Reference, thisArgAlreadyPointer = false) {
+		if (methodName == "drop" && this.currentContext.name != "drop") throw new Error(`drop() may only be called explicitly from another drop() method.`);
 		const methods = struct.methods.get(methodName);
 		const debugName = `${struct.name}_${methodName}`;
 		this.builder.comment(`Calling method ${debugName}`);
@@ -1855,7 +1984,16 @@ class Compiler {
 
 		if (callToken) this.registerDetail(callToken, matchingMethod);
 
-		return this.callFunction(debugName, matchingMethod.getCallInfo(), call, thisArgReference, callToken ?? matchingMethod.nameToken, thisArgAlreadyPointer);
+		const result = this.callFunction(
+			debugName,
+			matchingMethod.getCallInfo(),
+			call,
+			thisArgReference,
+			callToken ?? matchingMethod.nameToken,
+			thisArgAlreadyPointer
+		);
+		if (methodName == "drop") this.markMovedExpression(thisArgReference);
+		return result;
 	}
 
 	// Name is only for debug info/symbols
@@ -1884,7 +2022,10 @@ class Compiler {
 			this.builder.comment(`Evaluating thisArg for method call ${name}`);
 			this.handleReferenceRead(thisArgRef, !thisArgAlreadyPointer); // Push a thisarg pointer
 		}
-		call.arguments.forEach(arg => this.compileAst(arg));
+		call.arguments.forEach(arg => {
+			this.compileAst(arg);
+			this.markMovedExpression(arg);
+		});
 
 		const argumentCount = thisArgRef ? call.arguments.length + 1 : call.arguments.length;
 		if (argumentCount != funcInfo.argumentCount) {

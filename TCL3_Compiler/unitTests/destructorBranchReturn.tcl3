@@ -1,0 +1,20 @@
+// EXPECT: 1
+// EXPECT: 2
+// EXPECT: 2
+
+struct Guard {
+	id: int;
+	fn drop(): void { out this->id; }
+}
+
+fn use(value: Guard, shouldReturn: int): void {
+	if (shouldReturn) return;
+	out value.id;
+}
+
+fn main(): void {
+	let first: Guard = {id: 1};
+	let second: Guard = {id: 2};
+	use(first, 1);
+	use(second, 0);
+}

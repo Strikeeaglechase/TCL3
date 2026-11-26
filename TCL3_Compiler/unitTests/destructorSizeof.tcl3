@@ -1,0 +1,12 @@
+// EXPECT: 4
+// EXPECT: 8
+
+struct Guard {
+	id: int;
+	fn drop(): void { out this->id; }
+}
+
+fn main(): void {
+	let guard: Guard = {id: 8};
+	out sizeof(guard);
+}

@@ -31,6 +31,13 @@ class Struct implements IType {
 	public methods: Map<string, FunctionContext[]> = new Map();
 	private methodDeclMap: Map<FunctionDeclaration, FunctionContext> = new Map();
 	public size: number = 0;
+	public get destructor(): FunctionContext | null {
+		return this.methods.get("drop")?.[0] ?? null;
+	}
+
+	public get hasDestructor(): boolean {
+		return this.definition.methods.some(method => method.name == "drop" && !method.static);
+	}
 
 	constructor(
 		private compiler: Compiler,
@@ -61,6 +68,11 @@ class Struct implements IType {
 
 	private forwardDeclareMethodSignatures() {
 		this.definition.methods.forEach(method => {
+			if (method.name == "drop") {
+				if (method.static || method.parameters.length != 1 || method.returnType?.type != ASTType.RawTypeRef || method.returnType.rawType != "void")
+					throw new Error(`Destructor '${this.name}.drop' must be an instance method with no arguments and a void return type.`);
+				if (this.methods.has("drop")) throw new Error(`Struct '${this.name}' has more than one destructor.`);
+			}
 			const funcCtx = new FunctionContext(this.compiler, method);
 			this.methodDeclMap.set(method, funcCtx);
 

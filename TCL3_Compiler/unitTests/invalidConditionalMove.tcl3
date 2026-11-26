@@ -1,0 +1,8 @@
+// EXPECT_COMPILE_ERROR
+struct Guard { id: int; fn drop(): void {} }
+fn consume(value: Guard): void {}
+fn main(): void {
+	let guard: Guard = {id: 1};
+	if (true) consume(guard);
+	out guard.id;
+}
