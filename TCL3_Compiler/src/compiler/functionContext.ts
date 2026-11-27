@@ -71,13 +71,6 @@ class FunctionContext implements IType {
 		this.builder.addLabel(this.label);
 	}
 
-	public endFunction() {
-		console.log(`Function ${this.name} end`);
-		this.locals.forEach((local, name) => {
-			console.log(` - Local ${name} (${typeToStr(local.type)}) exiting scope`);
-		});
-	}
-
 	private checkOrResolveReturnType() {
 		this.returnType = this.definition.returnType;
 		const returns: ReturnStatement[] = [];
@@ -424,6 +417,20 @@ class FunctionContext implements IType {
 		}
 
 		throw new Error(`Local variable '${nameToken.value}' is not defined in function '${this.nameToken.value}'.`);
+	}
+
+	public getLocalsForLifetimeInit() {
+		const locals: { name: string; type: ASTTypeRef; isParameter: boolean }[] = [];
+		this.forwardDeclaredParameters.forEach((param, name) => {
+			locals.push({ name, type: param.type, isParameter: true });
+		});
+
+		this.locals.forEach((local, name) => {
+			if (this.forwardDeclaredParameters.has(name)) return; // Don't add parameters twice
+			locals.push({ name, type: local.type, isParameter: false });
+		});
+
+		return locals;
 	}
 
 	public getTypeOfLocal(name: string, nameToken: Token): ASTTypeRef {

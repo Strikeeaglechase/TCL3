@@ -1,22 +1,25 @@
-#include "./stdlib/list.tcl3" <int>
-#include "./stdlib/io.tcl3"
-#include "./stdlib/string.tcl3"
+struct IDroppable {
+	val: int;
+
+	fn drop(): void {
+		out this->val;
+	}
+}
+
+fn consume(drop: IDroppable): void {
+	out 11;
+}
 
 fn main(): void {
-	let list = intList.new(5);
-	
-	for(let i = 0; i < 10; i += 1) {
-		list.push(i);
-	}
+	let i = 5;
+	let drop: IDroppable = {val: 32};
+	let drop2: IDroppable = {val: 42};
 
-	for(i = 0; i < 10; i += 1) {
-		// out list[i];
-	}
+	if (i > 0) consume(drop);
 
-	let a = String.new("Hello");
-	let b = &a;
-	let c = b + " world!";
-	println(&c);
+	let drop3 = drop2;
 
-	// println($"Hello World! Value: {intToStr(123)}");
+	out drop.val;
+
+	out 2;
 }

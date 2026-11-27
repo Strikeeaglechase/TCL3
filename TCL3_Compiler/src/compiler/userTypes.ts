@@ -59,6 +59,10 @@ class Struct implements IType {
 		return { type: ASTType.RawTypeRef, rawType: this.name, rawTypeToken: this.nameToken };
 	}
 
+	public get hasDrop(): boolean {
+		return this.methods.has("drop");
+	}
+
 	private forwardDeclareMethodSignatures() {
 		this.definition.methods.forEach(method => {
 			const funcCtx = new FunctionContext(this.compiler, method);

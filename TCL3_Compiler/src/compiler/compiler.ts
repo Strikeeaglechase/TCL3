@@ -35,6 +35,7 @@ import { walk } from "../parser/walker.js";
 import { BuiltInFunction, builtInFunctions } from "./builtInFunctions.js";
 import { BuiltInTypeRefDetailInformation, FunctionListDetailInformation, TokenDetailInfo, VariableDetailInformation } from "./detail.js";
 import { FunctionContext } from "./functionContext.js";
+import { Lifetime, LifetimeState } from "./lifetime.js";
 import {
 	boolType,
 	charType,
@@ -122,6 +123,10 @@ class Compiler {
 	public functions: Map<string, FunctionContext[]> = new Map();
 	private functionDeclMap: Map<FunctionDeclaration, FunctionContext> = new Map();
 	private lambdaFunctions: Map<LambdaExpression, FunctionContext> = new Map();
+	private lifetimeStack: Lifetime[] = [];
+	private get lifetime(): Lifetime {
+		return this.lifetimeStack[this.lifetimeStack.length - 1];
+	}
 	private mainLabel: string = mainFnName;
 
 	private continueLabelStack: string[] = [];
@@ -428,7 +433,9 @@ class Compiler {
 
 		this.compileConditionToRegister(node.condition, Register.r0);
 		this.builder.jumpIfFalse(reg(Register.r0), label(thenBodyEnd));
+		this.pushLifetime();
 		node.thenBody.forEach(bodyNode => this.compileAst(bodyNode));
+		this.popLifetime();
 		if (ifEnd) this.builder.jump(label(ifEnd));
 		this.builder.addLabel(thenBodyEnd);
 
@@ -469,6 +476,29 @@ class Compiler {
 		this.breakLabelStack.pop();
 	}
 
+	private dropIfDroppable(ref: Reference) {
+		if (ref.child || ref.dereferenceCount > 0 || ref.offsetExpressions != null)
+			throw new Error(`dropIfDroppable only supports simple local variable references, not complex references like ${referenceToString(ref)}`);
+		const localType = this.currentContext.getTypeOfLocal(ref.identifier, ref.identifierToken);
+		if (localType.type != ASTType.RawTypeRef) return;
+
+		const struct = this.structs.get(localType.rawType);
+		if (!struct || !struct.hasDrop) return;
+
+		const lifetimeState = this.lifetime.states.get(ref.identifier);
+		console.log(`Maybe drop of ${referenceToString(ref)}, current state: ${LifetimeState[lifetimeState.state]}`);
+		if (lifetimeState.state != LifetimeState.Live) return;
+		this.builder.comment(`Dropping previous value of ${ref.identifier}`);
+
+		const call: FunctionCall = {
+			type: ASTType.FunctionCall,
+			arguments: [],
+			reference: ref
+		};
+
+		this.callMethod(struct, `drop`, call, null, ref);
+	}
+
 	private handleAssignment(node: Assignment) {
 		if (!this.currentContext) throw new Error(`Unexpected assignment outside of a function context.`);
 		this.builder.comment(`Assignment to ${referenceToString(node.reference)}`);
@@ -488,6 +518,7 @@ class Compiler {
 
 		// Evaluate the expression, expect result on the stack
 		this.compileAst(node.expression);
+		this.markExpressionMoved(node.expression);
 
 		const ref = node.reference;
 		this.registerDetail(ref.identifierToken, this.currentContext.getDetailInfoFromRef(ref));
@@ -495,8 +526,11 @@ class Compiler {
 		// Simple full assignment to local variable
 		if (!ref.child && ref.offsetExpressions == null) {
 			if (ref.dereferenceCount == 0) {
+				// Simple local like x = y; Need to try to drop the previous value of x, if it's a droppable
+				this.dropIfDroppable(ref);
 				this.builder.comment(`Simple assignment to local variable: ${ref.identifier}`);
 				this.currentContext.writeVarFromStack(ref.identifier, ref.identifierToken);
+				this.lifetime.makeAlive(ref.identifier);
 			} else {
 				this.builder.comment(`Assignment to pointer variable: ${ref.identifier} with deref count ${ref.dereferenceCount}`);
 				this.currentContext.useVariableAsPointerAndSetFromStack(ref.identifier, ref.identifierToken, 0, ref.dereferenceCount);
@@ -1167,6 +1201,16 @@ class Compiler {
 		});
 	}
 
+	private pushLifetime() {
+		const newLifetime = new Lifetime(this, this.lifetime);
+		this.lifetimeStack.push(newLifetime);
+	}
+
+	private popLifetime() {
+		const prevLifetime = this.lifetimeStack.pop();
+		this.lifetime.performMergeWithChild(prevLifetime);
+	}
+
 	private handleStructDeclaration(node: StructDeclaration) {
 		const struct = this.structs.get(node.name);
 		// Only build method after the struct is fully defined, so that methods can reference the struct's fields if needed
@@ -1242,7 +1286,6 @@ class Compiler {
 			case ASTType.LambdaExpression:
 				return this.getReturnTypeForLambdaDeclaration(expression);
 			default:
-				// console.log(chalk.yellow(`Cannot infer type from initializer of type: ${expression.type}`));
 				throw new Error(`Cannot infer type from initializer of type: ${expression.type}`);
 				return null; // Cannot infer type
 		}
@@ -1284,6 +1327,13 @@ class Compiler {
 				this.registerDetail(typeRef.fnKeywordToken, new BuiltInTypeRefDetailInformation(typeRef, wrapLevel));
 				break;
 		}
+	}
+
+	private markExpressionMoved(expression: AST): void {
+		if (expression.type == ASTType.TypeCast) return this.markExpressionMoved(expression.expression);
+		if (expression.type != ASTType.Reference) return;
+		if (expression.child || expression.offsetExpressions || expression.dereferenceCount > 0) return;
+		this.lifetime.kill(expression.identifier);
 	}
 
 	// Variable is forward declared in function context init, so this code simply handles actual initializer, not allocating slots
@@ -1346,8 +1396,11 @@ class Compiler {
 				}
 			}
 			this.compileAst(varDecl.initializer);
+			this.markExpressionMoved(varDecl.initializer);
 			this.currentContext.writeVarFromStack(varDecl.name, varDecl.nameToken);
 		}
+
+		this.lifetime.initialize(varDecl.name);
 	}
 
 	private getOffsetAndSizeOfSimpleStructField(structType: RawTypeRef, fieldName: string, fieldToken: Token) {
@@ -1373,7 +1426,7 @@ class Compiler {
 	private handleOutStatement(node: OutStatement) {
 		this.builder.comment(`Out statement`);
 		const type = this.inferTypeFrom(node.expression);
-		if (type.type != ASTType.RawTypeRef) throw new Error(`Out statement only supports raw types, got ${typeToStr(type)}`);
+		if (type?.type != ASTType.RawTypeRef) throw new Error(`Out statement only supports raw types, got ${typeToStr(type)}`);
 
 		let outType: "INT" | "CHAR" | "FLOAT" | "BOOL";
 		switch (type.rawType) {
@@ -1539,6 +1592,8 @@ class Compiler {
 			this.registerDetail(param.nameToken, varDetail);
 		});
 
+		// Setup lifetime stack after parameter initialization so everything is in scope
+		this.lifetimeStack = [new Lifetime(this, funcCtx)];
 		this.builder.commentln(`Function body fn "${node.name}":`);
 		node.body.forEach(statement => this.compileAst(statement));
 
@@ -1561,8 +1616,6 @@ class Compiler {
 		} else {
 			this.builder.pop(reg(Register.funcRet));
 		}
-
-		funcCtx.endFunction();
 
 		this.builder.comment(`Restore sp`);
 		this.builder.move(reg(Register.fp), reg(Register.sp));
@@ -1884,7 +1937,10 @@ class Compiler {
 			this.builder.comment(`Evaluating thisArg for method call ${name}`);
 			this.handleReferenceRead(thisArgRef, !thisArgAlreadyPointer); // Push a thisarg pointer
 		}
-		call.arguments.forEach(arg => this.compileAst(arg));
+		call.arguments.forEach(arg => {
+			this.compileAst(arg);
+			this.markExpressionMoved(arg);
+		});
 
 		const argumentCount = thisArgRef ? call.arguments.length + 1 : call.arguments.length;
 		if (argumentCount != funcInfo.argumentCount) {
