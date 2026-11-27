@@ -46,7 +46,7 @@ function linkCompileAndExecute(sourceFilePath: string) {
 	// fs.writeFileSync("../debug/program.wat", wat);
 	// WATGenerator.compileToWasm("../debug/program.wat", "../debug/program.wasm");
 	// WATGenerator.optimizeWasm("../debug/program.wasm", "../debug/opt_program.wasm", 0);
-
+	//
 	// const runner = new WasmRunner("../debug/program.wasm");
 	// runner.run();
 

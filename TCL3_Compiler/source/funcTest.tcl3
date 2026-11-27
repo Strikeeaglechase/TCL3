@@ -19,7 +19,5 @@ fn main(): void {
 
 	let drop3 = drop2;
 
-	out drop.val;
-
 	out 2;
 }

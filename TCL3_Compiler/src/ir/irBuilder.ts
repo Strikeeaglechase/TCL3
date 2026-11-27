@@ -1,5 +1,5 @@
 import { float32ToBits } from "./float32.js";
-import { IRArgument, IRArgumentType, IRCodeLine, IRCommentLine, IRLabelLine, IROpCode, IRProgram, Register } from "./ir.js";
+import { IRArgument, IRArgumentType, IRCodeLine, IRCommentLine, IRFutureInsertMarker, IRLabelLine, IRLine, IROpCode, IRProgram, Register } from "./ir.js";
 
 const imm = (value: number) => new IRArgument(IRArgumentType.IMM, value.toString());
 const fimm = (value: number) => imm(float32ToBits(value));
@@ -46,6 +46,7 @@ class _IRBuilder implements IStringProvider {
 	private nextComments: string[] = []; // On-line comments want to be added to the next instruction, queue here
 
 	private insertLabelAt: { afterNLines: number; label: string }[] = [];
+	private currentInsertContext: IRFutureInsertMarker | null = null;
 
 	public get currentAddress() {
 		return this.program.code.length;
@@ -122,11 +123,35 @@ class _IRBuilder implements IStringProvider {
 	}
 
 	public addLabel(label: string) {
-		this.program.code.push(new IRLabelLine(label));
+		this.addLineContextAware(new IRLabelLine(label));
 	}
 
 	public addLabelAfterNLines(label: string, afterNLines: number) {
 		this.insertLabelAt.push({ afterNLines, label });
+	}
+
+	public getInsertContext(label: string) {
+		const insertLine = new IRFutureInsertMarker(label);
+		this.addLineContextAware(insertLine);
+
+		return insertLine;
+	}
+
+	public withContext(ctx: IRFutureInsertMarker, callback: () => void) {
+		const prevContext = this.currentInsertContext;
+		const prevInsertLabelAt = this.insertLabelAt;
+
+		this.insertLabelAt = [];
+		this.currentInsertContext = ctx;
+
+		callback();
+
+		// Remove the insert marker from the code (one time use)
+		const ctxIdx = this.program.code.indexOf(ctx);
+		this.program.code.splice(ctxIdx, 1);
+
+		this.currentInsertContext = prevContext;
+		this.insertLabelAt = prevInsertLabelAt;
 	}
 
 	public getStringIndex(str: string): number {
@@ -135,7 +160,7 @@ class _IRBuilder implements IStringProvider {
 	}
 
 	public commentln(comment: string) {
-		this.program.code.push(new IRCommentLine(comment));
+		this.addLineContextAware(new IRCommentLine(comment));
 	}
 
 	public comment(comment: string) {
@@ -152,7 +177,8 @@ class _IRBuilder implements IStringProvider {
 		const codeLine = new IRCodeLine(op, ...args);
 		this.nextComments.forEach(cmt => codeLine.addComment(cmt));
 		this.nextComments = [];
-		this.program.code.push(codeLine);
+
+		this.addLineContextAware(codeLine);
 
 		this.insertLabelAt.forEach(il => il.afterNLines--);
 		this.insertLabelAt = this.insertLabelAt.filter(il => {
@@ -160,6 +186,21 @@ class _IRBuilder implements IStringProvider {
 
 			return il.afterNLines > 0;
 		});
+	}
+
+	private addLineContextAware(line: IRLine) {
+		if (!this.currentInsertContext) {
+			this.program.code.push(line);
+			return;
+		}
+
+		const insertMarkerIndex = this.program.code.indexOf(this.currentInsertContext);
+		if (insertMarkerIndex === -1) throw new Error("Current insert context not found in code");
+		const insertMarker = this.program.code[insertMarkerIndex] as IRFutureInsertMarker;
+		const insertIndex = insertMarkerIndex + 1 + insertMarker.linesAdded;
+		this.program.code.splice(insertIndex, 0, line);
+
+		insertMarker.linesAdded++;
 	}
 
 	public getCode() {

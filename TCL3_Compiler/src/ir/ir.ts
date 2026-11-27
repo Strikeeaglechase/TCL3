@@ -168,4 +168,33 @@ class IRLabelLine extends IRLine {
 	}
 }
 
-export { Register, IRArgument, IRArgumentType, IROpCode, irOpCode, isOpCode, IRProgram, IRLine, IRCodeLine, IRCommentLine, IRLabelLine, isRegister };
+class IRFutureInsertMarker extends IRLine {
+	public linesAdded: number = 0;
+	constructor(public label: string) {
+		super();
+	}
+
+	override getBaseLength(): number {
+		return this.toString().length;
+	}
+
+	override toString(): string {
+		return `\n# <<FUTURE INSERT FOR ${this.label}>>`;
+	}
+}
+
+export {
+	Register,
+	IRArgument,
+	IRArgumentType,
+	IROpCode,
+	irOpCode,
+	isOpCode,
+	IRProgram,
+	IRLine,
+	IRCodeLine,
+	IRCommentLine,
+	IRLabelLine,
+	IRFutureInsertMarker,
+	isRegister
+};

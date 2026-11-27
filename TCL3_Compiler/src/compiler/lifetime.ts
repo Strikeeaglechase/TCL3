@@ -8,9 +8,30 @@ enum LifetimeState {
 	Dead = "Dead"
 }
 
+enum LifetimeMergeAction {
+	Drop = "Drop",
+	DropInOtherBranches = "DropInOtherBranches"
+}
+
+interface LifetimeMergeResult {
+	name: string;
+	action: LifetimeMergeAction;
+}
+
 class Lifetime {
 	public states: Map<string, { state: LifetimeState; type: ASTTypeRef }> = new Map();
 	private name: string;
+
+	public get alive() {
+		const aliveVars: string[] = [];
+		this.states.forEach((stateEntity, name) => {
+			if (stateEntity.state == LifetimeState.Live) {
+				aliveVars.push(name);
+			}
+		});
+
+		return aliveVars;
+	}
 
 	public constructor(
 		private compiler: Compiler,
@@ -73,26 +94,35 @@ class Lifetime {
 		this.logState();
 	}
 
-	public performMergeWithChild(child: Lifetime) {
+	public getMergeActionsForChild(child: Lifetime) {
+		const actions: LifetimeMergeResult[] = [];
+
 		child.states.forEach((childStateEntity, name) => {
 			const local = this.states.get(name);
 			if (!local && childStateEntity.state == LifetimeState.Live) {
 				console.log(`Locally declared variable ${name} is live in child lifetime but does not exist in parent lifetime, needs drop`);
+				actions.push({ name, action: LifetimeMergeAction.Drop });
 				return;
 			}
 
 			if (local.state == LifetimeState.Live && childStateEntity.state == LifetimeState.Dead) {
-				console.log(`Local ${name} is sometimes dropped in child lifetime, needs other-branch drop`);
+				console.log(`Local ${name} is dropped in child lifetime, needs other-branch drop`);
+				actions.push({ name, action: LifetimeMergeAction.DropInOtherBranches });
 				return;
 			}
 
 			if (local.state == LifetimeState.Dead && childStateEntity.state == LifetimeState.Live) {
-				console.log(`Local ${name} is sometimes alive in child lifetime, needs to be marked as alive in parent lifetime (for later drop)`);
+				// We do not allow a child lifetime to resurrect a variable that was dropped in parent
+				// If the lifetime seems to do this, instead we will just drop it in the child lifetime and keep it dead in the parent lifetime
+				console.log(`Local ${name} is alive in child lifetime, needs drop`);
+				actions.push({ name, action: LifetimeMergeAction.Drop });
 				return;
 			}
 
 			console.log(`Local ${name} is ${LifetimeState[local.state]} in parent and ${LifetimeState[childStateEntity.state]} in child (no action needed)`);
 		});
+
+		return actions;
 	}
 
 	private ensure(name: string, ...expectedStates: LifetimeState[]) {
@@ -103,4 +133,4 @@ class Lifetime {
 	}
 }
 
-export { Lifetime, LifetimeState };
+export { Lifetime, LifetimeState, LifetimeMergeAction, LifetimeMergeResult };

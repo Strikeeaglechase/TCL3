@@ -1,5 +1,5 @@
 import { CompilerError, SourceSpan } from "../errors.js";
-import { IRArgument, Register } from "../ir/ir.js";
+import { IRArgument, IRFutureInsertMarker, Register } from "../ir/ir.js";
 import { fimm, imm, INT_SIZE, IRBuilder, label, memReg, PTR_SIZE, reg, str, ThreeArgInstructions } from "../ir/irBuilder.js";
 import {
 	Assignment,
@@ -35,7 +35,7 @@ import { walk } from "../parser/walker.js";
 import { BuiltInFunction, builtInFunctions } from "./builtInFunctions.js";
 import { BuiltInTypeRefDetailInformation, FunctionListDetailInformation, TokenDetailInfo, VariableDetailInformation } from "./detail.js";
 import { FunctionContext } from "./functionContext.js";
-import { Lifetime, LifetimeState } from "./lifetime.js";
+import { Lifetime, LifetimeMergeAction, LifetimeMergeResult, LifetimeState } from "./lifetime.js";
 import {
 	boolType,
 	charType,
@@ -429,14 +429,28 @@ class Compiler {
 
 	private handleIfStatement(node: IfStatement) {
 		const thenBodyEnd = `if_then_end_${id++}`;
-		const ifEnd = node.elseBody || node.elseIfs.length > 0 ? `if_end_${id++}` : null;
+		const ifEnd = `if_end_${id++}`;
+
+		const lifetimeCleanup: {
+			branchCtx: IRFutureInsertMarker;
+			actions: LifetimeMergeResult[];
+			lifetime: Lifetime;
+		}[] = [];
 
 		this.compileConditionToRegister(node.condition, Register.r0);
 		this.builder.jumpIfFalse(reg(Register.r0), label(thenBodyEnd));
+
+		// Then body
 		this.pushLifetime();
 		node.thenBody.forEach(bodyNode => this.compileAst(bodyNode));
-		this.popLifetime();
-		if (ifEnd) this.builder.jump(label(ifEnd));
+		const thenLifetime = this.popLifetime();
+		lifetimeCleanup.push({
+			branchCtx: this.builder.getInsertContext(`then_end`),
+			actions: thenLifetime.actions,
+			lifetime: thenLifetime.lifetime
+		});
+
+		this.builder.jump(label(ifEnd));
 		this.builder.addLabel(thenBodyEnd);
 
 		node.elseIfs.forEach(elseIf => {
@@ -445,14 +459,60 @@ class Compiler {
 			this.compileConditionToRegister(elseIf.condition, Register.r0);
 			this.builder.jumpIfFalse(reg(Register.r0), label(elifEnd));
 
+			this.pushLifetime();
 			elseIf.body.forEach(bodyNode => this.compileAst(bodyNode));
+			const elifLifetime = this.popLifetime();
+			lifetimeCleanup.push({
+				branchCtx: this.builder.getInsertContext(`elif_end`),
+				actions: elifLifetime.actions,
+				lifetime: elifLifetime.lifetime
+			});
+
 			this.builder.jump(label(ifEnd));
 			this.builder.addLabel(elifEnd);
 		});
 
+		// Previously we would only generate an else body if there was an else statement in the ast
+		// Now, in order to possibly handle lifetimes we always generate the else body, however, we should implement
+		// optimizations in the IROptimizer to remove pointless jumps/labels/etc
+		this.pushLifetime();
 		if (node.elseBody) node.elseBody.body.forEach(bodyNode => this.compileAst(bodyNode));
+		const elseLifetime = this.popLifetime();
+		lifetimeCleanup.push({
+			branchCtx: this.builder.getInsertContext(`else_end`),
+			actions: elseLifetime.actions,
+			lifetime: elseLifetime.lifetime
+		});
 
-		if (ifEnd) this.builder.addLabel(ifEnd);
+		this.builder.addLabel(ifEnd);
+
+		// Insert required drops, for each branch checks what every other branch drops, and adds any missing drops
+		const isDropped: Set<string> = new Set();
+		lifetimeCleanup.forEach(cleanup => {
+			const otherBranchDrops: string[] = [];
+			lifetimeCleanup.forEach(other => {
+				if (other == cleanup) return;
+
+				other.actions.forEach(action => {
+					if (action.action != LifetimeMergeAction.DropInOtherBranches) return;
+					const localStateEntity = cleanup.lifetime.states.get(action.name);
+					if (localStateEntity.state == LifetimeState.Live && !otherBranchDrops.includes(action.name)) otherBranchDrops.push(action.name);
+				});
+			});
+
+			this.builder.withContext(cleanup.branchCtx, () => {
+				this.builder.commentln(`Inserting drops for branch, other branches dropped: ${otherBranchDrops.join(", ")}`);
+				otherBranchDrops.forEach(name => {
+					this.dropIfDroppable(name, true);
+					isDropped.add(name);
+				});
+			});
+		});
+
+		// Marked all conditionally-dropped values are properly dropped now
+		isDropped.forEach(name => {
+			this.lifetime.kill(name);
+		});
 	}
 
 	private handleWhileLoop(node: WhileLoop) {
@@ -467,7 +527,9 @@ class Compiler {
 		this.compileConditionToRegister(node.condition, Register.r0);
 		this.builder.jumpIfFalse(reg(Register.r0), label(loopEndLabel));
 
+		this.pushLifetime();
 		node.body.forEach(bodyNode => this.compileAst(bodyNode));
+		this.popLifetime();
 
 		this.builder.jump(label(loopTopLabel));
 		this.builder.addLabel(loopEndLabel);
@@ -476,18 +538,41 @@ class Compiler {
 		this.breakLabelStack.pop();
 	}
 
-	private dropIfDroppable(ref: Reference) {
+	private dropIfDroppable(ref: Reference, throwIfNotDrop?: boolean): void;
+	private dropIfDroppable(name: string, throwIfNotDrop?: boolean): void;
+	private dropIfDroppable(refOrName: Reference | string, throwIfNotDrop = false): void {
+		const ref: Reference =
+			typeof refOrName == "string"
+				? {
+						type: ASTType.Reference,
+						child: null,
+						dereferenceCount: 0,
+						offsetExpressions: null,
+						identifierToken: { value: refOrName, start: 0, end: 0, fileIdentifier: "dropIfDroppable_generated", type: TokenType.Identifier },
+						identifier: refOrName
+					}
+				: refOrName;
+
 		if (ref.child || ref.dereferenceCount > 0 || ref.offsetExpressions != null)
 			throw new Error(`dropIfDroppable only supports simple local variable references, not complex references like ${referenceToString(ref)}`);
 		const localType = this.currentContext.getTypeOfLocal(ref.identifier, ref.identifierToken);
-		if (localType.type != ASTType.RawTypeRef) return;
+		if (localType.type != ASTType.RawTypeRef) {
+			if (throwIfNotDrop) throw new Error(`Cannot drop variable ${ref.identifier} of type ${typeToStr(localType)} as it is not a raw type.`);
+			return;
+		}
 
 		const struct = this.structs.get(localType.rawType);
-		if (!struct || !struct.hasDrop) return;
+		if (!struct || !struct.hasDrop) {
+			if (throwIfNotDrop) throw new Error(`Cannot drop variable ${ref.identifier} of type ${typeToStr(localType)} as it is not a droppable type.`);
+			return;
+		}
 
 		const lifetimeState = this.lifetime.states.get(ref.identifier);
 		console.log(`Maybe drop of ${referenceToString(ref)}, current state: ${LifetimeState[lifetimeState.state]}`);
-		if (lifetimeState.state != LifetimeState.Live) return;
+		if (lifetimeState.state != LifetimeState.Live) {
+			if (throwIfNotDrop) throw new Error(`Cannot drop variable ${ref.identifier} of type ${typeToStr(localType)} as it is not live.`);
+			return;
+		}
 		this.builder.comment(`Dropping previous value of ${ref.identifier}`);
 
 		const call: FunctionCall = {
@@ -732,6 +817,11 @@ class Compiler {
 	private handleReferenceRead(ref: Reference, addressOf = false) {
 		if (!this.currentContext) throw new Error(`Unexpected reference outside of a function context.`);
 		this.builder.comment(`Reference: ${referenceToString(ref)}${addressOf ? " (addressOf)" : ""}`);
+
+		const stateEntity = this.lifetime.states.get(ref.identifier);
+		if (stateEntity && stateEntity.state != LifetimeState.Live) {
+			throw new Error(`Cannot read variable ${ref.identifierToken.value} as it is currently ${LifetimeState[stateEntity.state]}.`);
+		}
 
 		// Yay! Very simple reference type, direct stack access that we should have in local ctx
 		if (!addressOf && !ref.child && ref.offsetExpressions == null) {
@@ -1208,7 +1298,16 @@ class Compiler {
 
 	private popLifetime() {
 		const prevLifetime = this.lifetimeStack.pop();
-		this.lifetime.performMergeWithChild(prevLifetime);
+		const actions = this.lifetime.getMergeActionsForChild(prevLifetime);
+
+		actions.forEach(action => {
+			if (action.action == LifetimeMergeAction.Drop) {
+				this.builder.comment(`Drop variable '${action.name}'`);
+				this.dropIfDroppable(action.name, true);
+			}
+		});
+
+		return { actions, lifetime: prevLifetime };
 	}
 
 	private handleStructDeclaration(node: StructDeclaration) {
@@ -1616,6 +1715,14 @@ class Compiler {
 		} else {
 			this.builder.pop(reg(Register.funcRet));
 		}
+
+		// Drop all variables in the current lifetime
+		if (this.lifetimeStack.length > 1) {
+			throw new Error(`Reached function epilogue of "${node.name}" with more than one lifetime on the stack.`);
+		}
+		this.lifetime.alive.forEach(varName => {
+			this.dropIfDroppable(varName, true);
+		});
 
 		this.builder.comment(`Restore sp`);
 		this.builder.move(reg(Register.fp), reg(Register.sp));
