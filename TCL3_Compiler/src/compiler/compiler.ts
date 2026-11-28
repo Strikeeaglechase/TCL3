@@ -416,7 +416,15 @@ class Compiler {
 		this.compileConditionToRegister(node.condition, Register.r0);
 		this.builder.jumpIfFalse(reg(Register.r0), label(loopEndLabel));
 
+		this.pushLifetime();
 		node.body.forEach(bodyNode => this.compileAst(bodyNode));
+		const bodyLifetime = this.popLifetime();
+
+		bodyLifetime.actions.forEach(action => {
+			if (action.action == LifetimeMergeAction.DropInOtherBranches) {
+				throw new Error(`For loop body may consume variable ${action.name} multiple times`);
+			}
+		});
 
 		this.builder.addLabel(loopIncrementLabel);
 		this.compileAst(node.increment);
@@ -529,7 +537,13 @@ class Compiler {
 
 		this.pushLifetime();
 		node.body.forEach(bodyNode => this.compileAst(bodyNode));
-		this.popLifetime();
+		const bodyLifetime = this.popLifetime();
+
+		bodyLifetime.actions.forEach(action => {
+			if (action.action == LifetimeMergeAction.DropInOtherBranches) {
+				throw new Error(`For loop body may consume variable ${action.name} multiple times`);
+			}
+		});
 
 		this.builder.jump(label(loopTopLabel));
 		this.builder.addLabel(loopEndLabel);
@@ -1304,6 +1318,11 @@ class Compiler {
 			if (action.action == LifetimeMergeAction.Drop) {
 				this.builder.comment(`Drop variable '${action.name}'`);
 				this.dropIfDroppable(action.name, true);
+			} else if (action.action == LifetimeMergeAction.InitializedInChildDrop) {
+				this.builder.comment(`Drop variable '${action.name}' (initialized in child)`);
+				this.lifetime.makeAlive(action.name);
+				this.dropIfDroppable(action.name, true);
+				this.lifetime.kill(action.name);
 			}
 		});
 
@@ -1700,6 +1719,14 @@ class Compiler {
 
 		// Skip function epilogue
 		if (node.name == mainFnName) {
+			// Drop all variables in the current lifetime
+			if (this.lifetimeStack.length > 1) {
+				throw new Error(`Reached function epilogue of "${node.name}" with more than one lifetime on the stack.`);
+			}
+			this.lifetime.alive.forEach(varName => {
+				this.dropIfDroppable(varName, true);
+			});
+
 			this.builder.jump(label(programExitLabel));
 			this.currentContext = null;
 			return funcCtx;
@@ -1712,7 +1739,7 @@ class Compiler {
 			for (let i = 0; i < returnSize / INT_SIZE; i++) {
 				this.builder.move(memReg(Register.sp, INT_SIZE, -returnSize + i * INT_SIZE), memReg(Register.r0, INT_SIZE, i * INT_SIZE));
 			}
-		} else {
+		} else if (returnSize != 0) {
 			this.builder.pop(reg(Register.funcRet));
 		}
 

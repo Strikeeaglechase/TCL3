@@ -19,4 +19,5 @@ fn main(): void {
 	println(&c);
 
 	// println($"Hello World! Value: {intToStr(123)}");
+	println(String.new("Hello World! Value: " + intToStr(123)));
 }

@@ -38,4 +38,8 @@ struct String {
 		}
 		return len;
 	}
+
+	fn drop(): void {
+		free(this->chars);
+	}
 }

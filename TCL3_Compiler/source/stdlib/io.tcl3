@@ -16,8 +16,8 @@ fn println(str: char*): void {
 	out '\n';
 }
 
-fn println(str: String*): void {
-	println(str->chars);
+fn println(str: String): void {
+	println(str.chars);
 }
 
 #export intToStr

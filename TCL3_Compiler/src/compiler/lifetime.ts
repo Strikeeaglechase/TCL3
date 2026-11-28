@@ -10,7 +10,8 @@ enum LifetimeState {
 
 enum LifetimeMergeAction {
 	Drop = "Drop",
-	DropInOtherBranches = "DropInOtherBranches"
+	DropInOtherBranches = "DropInOtherBranches",
+	InitializedInChildDrop = "InitializedInChildDrop"
 }
 
 interface LifetimeMergeResult {
@@ -87,7 +88,7 @@ class Lifetime {
 
 	public makeAlive(name: string) {
 		if (!this.states.has(name)) return;
-		this.ensure(name, LifetimeState.Dead);
+		this.ensure(name, LifetimeState.Dead, LifetimeState.Uninitialized);
 		this.states.get(name).state = LifetimeState.Live;
 
 		console.log(`Make alive ${name} in ${this.name}`);
@@ -111,11 +112,11 @@ class Lifetime {
 				return;
 			}
 
-			if (local.state == LifetimeState.Dead && childStateEntity.state == LifetimeState.Live) {
+			if ((local.state == LifetimeState.Dead || local.state == LifetimeState.Uninitialized) && childStateEntity.state == LifetimeState.Live) {
 				// We do not allow a child lifetime to resurrect a variable that was dropped in parent
 				// If the lifetime seems to do this, instead we will just drop it in the child lifetime and keep it dead in the parent lifetime
 				console.log(`Local ${name} is alive in child lifetime, needs drop`);
-				actions.push({ name, action: LifetimeMergeAction.Drop });
+				actions.push({ name, action: LifetimeMergeAction.InitializedInChildDrop });
 				return;
 			}
 
